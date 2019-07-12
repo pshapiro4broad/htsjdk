@@ -23,6 +23,7 @@
  */
 package htsjdk.tribble.index.linear;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.Feature;
 import htsjdk.tribble.index.Block;
 import htsjdk.tribble.index.Index;
@@ -39,7 +40,7 @@ import java.util.LinkedList;
  * @author jrobinso
  */
 public class LinearIndexCreator  extends TribbleIndexCreator {
-    public static int DEFAULT_BIN_WIDTH = 8000;
+    public static final int DEFAULT_BIN_WIDTH = 8000;
     // the set bin width
     private int binWidth = DEFAULT_BIN_WIDTH;
 
@@ -57,11 +58,11 @@ public class LinearIndexCreator  extends TribbleIndexCreator {
     }
 
     public LinearIndexCreator(final File inputFile, final int binSize) {
-        this(inputFile.toPath(), binSize);
+        this(IOUtil.toPath(inputFile), binSize);
     }
 
     public LinearIndexCreator(final File inputFile) {
-        this(inputFile.toPath());
+        this(IOUtil.toPath(inputFile));
     }
 
     public LinearIndexCreator(final Path inputPath) {

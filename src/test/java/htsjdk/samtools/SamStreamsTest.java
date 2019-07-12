@@ -40,6 +40,7 @@ public class SamStreamsTest extends HtsjdkTest {
     private static final File TEST_DATA_DIR = new File("src/test/resources/htsjdk/samtools");
 
     @Test(dataProvider = "makeData")
+    @SuppressWarnings("deprecated") // we're testing a deprecated method here deliberately
     public void testDataFormat(final String inputFile, final boolean isGzippedSAMFile, final boolean isBAMFile, final boolean isCRAMFile) throws Exception {
         final File input = new File(TEST_DATA_DIR, inputFile);
         try(final InputStream fis = new BufferedInputStream(new FileInputStream(input))) { //must be buffered or the isGzippedSAMFile will blow up
@@ -91,17 +92,30 @@ public class SamStreamsTest extends HtsjdkTest {
         Assert.assertEquals(SamStreams.sourceLikeCram(strm), expected);
     }
 
-
     @DataProvider(name = "sourceLikeBam")
     public Object[][] sourceLikeBamData() {
         return new Object[][] {
                 {"cram_with_bai_index.cram", true, false },
                 {"compressed.bam", true, true },
                 {"unsorted.sam", true, false },
+        };
+    }
+
+    @Test(dataProvider = "sourceLikeBam")
+    public void sourceLikeBam(
+            final String resourceName,
+            final boolean isFile,
+            final boolean expected) throws IOException
+    {
+        sourceLikeBamImpl(resourceName, isFile, expected);
+    }
+
+    @DataProvider(name = "sourceLikeBamRemote")
+    public Object[][] sourceLikeBamDataRemote() {
+        return new Object[][] {
                 // fails due to a combination of https://github.com/samtools/htsjdk/issues/619 and
                 // https://github.com/samtools/htsjdk/issues/618
-                //{"ftp://ftp.broadinstitute.org/dummy.cram", false, false},
-                {"ftp://ftp.broadinstitute.org/dummy.bam", false, true},
+                //{"ftp://ftp.broadinstitute.org/dummy.cram", false, false},{"ftp://ftp.broadinstitute.org/dummy.bam", false, true},
                 {"http://www.broadinstitute.org/dummy.bam", false, true},
                 {"https://www.broadinstitute.org/dummy.bam", false, true},
                 {"http://www.broadinstitute.org/dummy.bam?alt=media", false, true},
@@ -111,8 +125,16 @@ public class SamStreamsTest extends HtsjdkTest {
         };
     }
 
-    @Test(dataProvider = "sourceLikeBam")
-    public void sourceLikeBam(
+    @Test(dataProvider = "sourceLikeBamRemote",groups = "ftp")
+    public void sourceLikeBamRemote(
+            final String resourceName,
+            final boolean isFile,
+            final boolean expected) throws IOException
+    {
+        sourceLikeBamImpl(resourceName, isFile, expected);
+    }
+
+    public void sourceLikeBamImpl(
             final String resourceName,
             final boolean isFile,
             final boolean expected) throws IOException

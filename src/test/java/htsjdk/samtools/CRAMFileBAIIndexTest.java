@@ -3,6 +3,7 @@ package htsjdk.samtools;
 import htsjdk.HtsjdkTest;
 import htsjdk.samtools.cram.build.ContainerParser;
 import htsjdk.samtools.cram.build.CramContainerIterator;
+import htsjdk.samtools.cram.ref.ReferenceContext;
 import htsjdk.samtools.cram.ref.ReferenceSource;
 import htsjdk.samtools.cram.structure.AlignmentSpan;
 import htsjdk.samtools.cram.structure.Container;
@@ -45,41 +46,44 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
     private int nofReads = 10000 ;
     private int nofReadsPerContainer = 1000 ;
 
+    private final static String TEST_QUERY_ALIGNMENT_CONTIG = "chrM";
+    private final static int TEST_QUERY_ALIGNMENT_START = 1519;
+
 
     // Mixes testing queryAlignmentStart with each CRAMFileReaderConstructor
     // Separate into individual tests
     @Test
     public void testConstructors () throws IOException {
         CRAMFileReader reader = new CRAMFileReader(cramFile, indexFile, source, ValidationStringency.SILENT);
-        CloseableIterator<SAMRecord> iterator = reader.queryAlignmentStart("chrM", 1500);
+        CloseableIterator<SAMRecord> iterator = reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
         Assert.assertTrue(iterator.hasNext());
         SAMRecord record = iterator.next();
 
-        Assert.assertEquals(record.getReferenceName(), "chrM");
-        Assert.assertTrue(record.getAlignmentStart() >= 1500);
+        Assert.assertEquals(record.getReferenceName(), TEST_QUERY_ALIGNMENT_CONTIG);
+        Assert.assertEquals(record.getAlignmentStart(), TEST_QUERY_ALIGNMENT_START);
         reader.close();
 
         reader = new CRAMFileReader(new SeekableFileStream(cramFile), indexFile, source, ValidationStringency.SILENT);
-        iterator = reader.queryAlignmentStart("chrM", 1500);
+        iterator = reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
         Assert.assertTrue(iterator.hasNext());
         record = iterator.next();
 
-        Assert.assertEquals(record.getReferenceName(), "chrM");
-        Assert.assertTrue(record.getAlignmentStart() >= 1500);
+        Assert.assertEquals(record.getReferenceName(), TEST_QUERY_ALIGNMENT_CONTIG);
+        Assert.assertEquals(record.getAlignmentStart(), TEST_QUERY_ALIGNMENT_START);
         reader.close();
 
         reader = new CRAMFileReader(new SeekableFileStream(cramFile), new SeekableFileStream(indexFile), source, ValidationStringency.SILENT);
-        iterator = reader.queryAlignmentStart("chrM", 1500);
+        iterator = reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
         Assert.assertTrue(iterator.hasNext());
         record = iterator.next();
 
-        Assert.assertEquals(record.getReferenceName(), "chrM");
-        Assert.assertTrue(record.getAlignmentStart() >= 1500);
+        Assert.assertEquals(record.getReferenceName(), TEST_QUERY_ALIGNMENT_CONTIG);
+        Assert.assertEquals(record.getAlignmentStart(), TEST_QUERY_ALIGNMENT_START);
         reader.close();
 
         reader = new CRAMFileReader(new SeekableFileStream(cramFile), (File)null, source, ValidationStringency.SILENT);
         try {
-            reader.queryAlignmentStart("chrM", 1500);
+            reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
             Assert.fail("Expecting query to fail when there is no index");
         } catch (SAMException e) {
         }
@@ -87,7 +91,7 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
 
         reader = new CRAMFileReader(new SeekableFileStream(cramFile), (SeekableFileStream)null, source, ValidationStringency.SILENT);
         try {
-            reader.queryAlignmentStart("chrM", 1500);
+            reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
             Assert.fail("Expecting query to fail when there is no index");
         } catch (SAMException e) {
         }
@@ -99,12 +103,12 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
     public void test_chrM_1500_location() throws IOException {
         CRAMFileReader reader = new CRAMFileReader(cramFile, indexFile, source);
         reader.setValidationStringency(ValidationStringency.SILENT);
-        CloseableIterator<SAMRecord> iterator = reader.queryAlignmentStart("chrM", 1500);
+        CloseableIterator<SAMRecord> iterator = reader.queryAlignmentStart(TEST_QUERY_ALIGNMENT_CONTIG, TEST_QUERY_ALIGNMENT_START);
         Assert.assertTrue(iterator.hasNext());
         SAMRecord record = iterator.next();
 
-        Assert.assertEquals(record.getReferenceName(), "chrM");
-        Assert.assertTrue(record.getAlignmentStart() >= 1500);
+        Assert.assertEquals(record.getReferenceName(), TEST_QUERY_ALIGNMENT_CONTIG);
+        Assert.assertEquals(record.getAlignmentStart(), TEST_QUERY_ALIGNMENT_START);
     }
 
     @Test
@@ -173,23 +177,23 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
     }
 
     @Test
-    public void testIteratorFromFileSpan_SecondContainer() throws IOException, IllegalAccessException {
+    public void testIteratorFromFileSpan_SecondContainer() throws IOException {
         CramContainerIterator it = new CramContainerIterator(new ByteArrayInputStream(cramBytes));
         it.hasNext();
         it.next();
         it.hasNext();
         Container secondContainer = it.next();
         Assert.assertNotNull(secondContainer);
-        final Map<Integer, AlignmentSpan> references = new ContainerParser(it.getCramHeader().getSamFileHeader()).getReferences(secondContainer, ValidationStringency.STRICT);
+        final Map<ReferenceContext, AlignmentSpan> references = secondContainer.getSpans(ValidationStringency.STRICT);
         it.close();
-        int refId = new TreeSet<Integer>(references.keySet()).iterator().next();
-        final AlignmentSpan alignmentSpan = references.get(refId);
+        final ReferenceContext referenceContext = new TreeSet<>(references.keySet()).iterator().next();
+        final AlignmentSpan alignmentSpan = references.get(referenceContext);
 
         CRAMFileReader reader = new CRAMFileReader(new ByteArraySeekableStream(cramBytes), new ByteArraySeekableStream(baiBytes), source, ValidationStringency.SILENT);
         reader.setValidationStringency(ValidationStringency.SILENT);
 
         final BAMIndex index = reader.getIndex();
-        final SAMFileSpan spanOfSecondContainer = index.getSpanOverlapping(refId, alignmentSpan.getStart(), alignmentSpan.getStart()+ alignmentSpan.getSpan());
+        final SAMFileSpan spanOfSecondContainer = index.getSpanOverlapping(referenceContext.getSequenceId(), alignmentSpan.getStart(), alignmentSpan.getStart()+ alignmentSpan.getSpan());
         Assert.assertNotNull(spanOfSecondContainer);
         Assert.assertFalse(spanOfSecondContainer.isEmpty());
         Assert.assertTrue(spanOfSecondContainer instanceof BAMFileSpan);
@@ -200,7 +204,7 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
         boolean matchFound = false;
         while (iterator.hasNext()) {
             final SAMRecord record = iterator.next();
-            if (record.getReferenceIndex().intValue() == refId) {
+            if (record.getReferenceIndex() == referenceContext.getSequenceId()) {
                 boolean overlaps = CoordMath.overlaps(record.getAlignmentStart(), record.getAlignmentEnd(), alignmentSpan.getStart(), alignmentSpan.getStart()+ alignmentSpan.getSpan());
                 if (overlaps) matchFound = true;
             }
@@ -213,7 +217,7 @@ public class CRAMFileBAIIndexTest extends HtsjdkTest {
     @Test
     public void testQueryInterval() throws IOException {
         CRAMFileReader reader = new CRAMFileReader(new ByteArraySeekableStream(cramBytes), new ByteArraySeekableStream(baiBytes), source, ValidationStringency.SILENT);
-        QueryInterval[] query = new QueryInterval[]{new QueryInterval(0, 1519, 1520), new QueryInterval(1, 470535, 470536)};
+        QueryInterval[] query = new QueryInterval[]{new QueryInterval(0, TEST_QUERY_ALIGNMENT_START, TEST_QUERY_ALIGNMENT_START+1), new QueryInterval(1, 470535, 470536)};
         final CloseableIterator<SAMRecord> iterator = reader.query(query, false);
         Assert.assertTrue(iterator.hasNext());
         SAMRecord r1 = iterator.next();

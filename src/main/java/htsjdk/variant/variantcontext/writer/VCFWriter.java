@@ -26,6 +26,7 @@
 package htsjdk.variant.variantcontext.writer;
 
 import htsjdk.samtools.SAMSequenceDictionary;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.RuntimeIOException;
 import htsjdk.tribble.index.IndexCreator;
 import htsjdk.variant.variantcontext.VariantContext;
@@ -43,6 +44,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.file.Path;
 
 /**
  * this class writes VCF files
@@ -86,6 +88,14 @@ class VCFWriter extends IndexingVariantContextWriter {
                      final boolean enableOnTheFlyIndexing,
                      final boolean doNotWriteGenotypes, final boolean allowMissingFieldsInHeader,
                      final boolean writeFullFormatField) {
+        this(IOUtil.toPath(location), output, refDict, enableOnTheFlyIndexing, doNotWriteGenotypes,
+            allowMissingFieldsInHeader,writeFullFormatField);
+    }
+
+    public VCFWriter(final Path location, final OutputStream output, final SAMSequenceDictionary refDict,
+        final boolean enableOnTheFlyIndexing,
+        final boolean doNotWriteGenotypes, final boolean allowMissingFieldsInHeader,
+        final boolean writeFullFormatField) {
         super(writerName(location, output), location, output, refDict, enableOnTheFlyIndexing);
         this.doNotWriteGenotypes = doNotWriteGenotypes;
         this.allowMissingFieldsInHeader = allowMissingFieldsInHeader;
@@ -96,11 +106,20 @@ class VCFWriter extends IndexingVariantContextWriter {
                      final IndexCreator indexCreator, final boolean enableOnTheFlyIndexing,
                      final boolean doNotWriteGenotypes, final boolean allowMissingFieldsInHeader,
                      final boolean writeFullFormatField) {
+        this(IOUtil.toPath(location), output, refDict, indexCreator, enableOnTheFlyIndexing,
+            doNotWriteGenotypes, allowMissingFieldsInHeader, writeFullFormatField);
+    }
+
+    public VCFWriter(final Path location, final OutputStream output, final SAMSequenceDictionary refDict,
+        final IndexCreator indexCreator, final boolean enableOnTheFlyIndexing,
+        final boolean doNotWriteGenotypes, final boolean allowMissingFieldsInHeader,
+        final boolean writeFullFormatField) {
         super(writerName(location, output), location, output, refDict, enableOnTheFlyIndexing, indexCreator);
         this.doNotWriteGenotypes = doNotWriteGenotypes;
         this.allowMissingFieldsInHeader = allowMissingFieldsInHeader;
         this.writeFullFormatField = writeFullFormatField;
     }
+
     // --------------------------------------------------------------------------------
     //
     // VCFWriter interface functions
@@ -154,6 +173,8 @@ class VCFWriter extends IndexingVariantContextWriter {
                                         final String streamNameForError) {
 
         try {
+            rejectVCFV43Headers(header);
+
             // the file format field needs to be written first
             writer.write(versionLine + "\n");
 
@@ -239,10 +260,21 @@ class VCFWriter extends IndexingVariantContextWriter {
 
     @Override
     public void setHeader(final VCFHeader header) {
+        rejectVCFV43Headers(header);
+
         if (outputHasBeenWritten) {
             throw new IllegalStateException("The header cannot be modified after the header or variants have been written to the output stream.");
         }
         this.mHeader = doNotWriteGenotypes ? new VCFHeader(header.getMetaDataInSortedOrder()) : header;
         this.vcfEncoder = new VCFEncoder(this.mHeader, this.allowMissingFieldsInHeader, this.writeFullFormatField);
+    }
+
+    // writing vcf v4.3 is not implemented
+    private static void rejectVCFV43Headers(final VCFHeader targetHeader) {
+        if (targetHeader.getVCFHeaderVersion() != null && targetHeader.getVCFHeaderVersion().isAtLeastAsRecentAs(VCFHeaderVersion.VCF4_3)) {
+            throw new IllegalArgumentException(String.format("Writing VCF version %s is not implemented", targetHeader.getVCFHeaderVersion()));
+        }
+
+
     }
 }

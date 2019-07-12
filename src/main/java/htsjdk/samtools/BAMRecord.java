@@ -126,9 +126,6 @@ public class BAMRecord extends SAMRecord {
         super.setReadBases(null);
         super.setBaseQualities(null);
 
-        // Do this after the above because setCigarString will clear it.
-        setIndexingBin(indexingBin);
-
         // Mark the binary block as being valid for writing back out to disk
         mBinaryDataStale = false;
     }
@@ -310,7 +307,7 @@ public class BAMRecord extends SAMRecord {
      * extracts the CIGAR from the CG tag and places it into the (in memory) cigar.
      */
     private void extractCigarFromCGAttribute(final Cigar sentinelCigar) throws IllegalStateException {
-        final int[] cigarFromCG = (int[]) getAttribute(SAMTagUtil.getSingleton().CG);
+        final int[] cigarFromCG = (int[]) getAttribute(SAMTag.CG.getBinaryTag());
 
         if (cigarFromCG == null) return;
 
@@ -353,7 +350,7 @@ public class BAMRecord extends SAMRecord {
         initializeCigar(decodedCigar);
 
         // remove CG attribute.
-        setAttribute(SAMTagUtil.getSingleton().CG, null);
+        setAttribute(SAMTag.CG.getBinaryTag(), null);
     }
 
     /**

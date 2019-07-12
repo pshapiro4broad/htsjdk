@@ -1552,6 +1552,28 @@ public class VariantContextUnitTest extends VariantBaseTest {
         }
     }
 
+    @DataProvider(name = "referenceBlockData")
+    public Object[][] referenceBlockData() {
+        return new Object[][]{
+                {Arrays.asList(Aref, Allele.UNSPECIFIED_ALTERNATE_ALLELE), false, false},
+                {Arrays.asList(Aref, Allele.UNSPECIFIED_ALTERNATE_ALLELE), true, true},
+                {Arrays.asList(Aref, Allele.NON_REF_ALLELE), true, true},
+                {Arrays.asList(Aref, C, Allele.UNSPECIFIED_ALTERNATE_ALLELE), true, false},
+                {Arrays.asList(Aref, C), false, false}
+        };
+    }
+
+    @Test(dataProvider = "referenceBlockData")
+    public void testReferenceBlock(List<Allele> alleles, boolean addEndAttribute, boolean isRefBlock) {
+        // create a context builder/context based on inputs provided
+        final VariantContextBuilder builder =
+                new VariantContextBuilder("test", snpLoc,snpLocStart, snpLocStop, alleles);
+        if (addEndAttribute) {
+            builder.attribute("END", 10);
+        }
+        Assert.assertEquals(builder.make().isReferenceBlock(), isRefBlock);
+    }
+
     @Test
     public void testGetAttributeAsIntList() {
         final VariantContext context = basicBuilder
@@ -1561,6 +1583,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
                 .attribute("IntegerList", new int[]{0, 1, 2, 3})
                 .attribute("DoubleList", new double[]{1.8, 1.6, 2.1})
                 .attribute("StringList", new String[]{"1", "2"})
+                .attribute("CaseInsensitiveStringList", new String[]{"nan", "Infinity", "-inf"})
                 .attribute("NotNumeric", new String[]{"A", "B"})
                 .make();
         // test an empty value
@@ -1571,6 +1594,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
         Assert.assertEquals(context.getAttributeAsIntList("IntegerList", 5), Arrays.asList(0, 1, 2, 3));
         Assert.assertEquals(context.getAttributeAsIntList("DoubleList", 5), Arrays.asList(1, 1, 2));
         Assert.assertEquals(context.getAttributeAsIntList("StringList", 5), Arrays.asList(1, 2));
+        Assert.assertThrows(() -> context.getAttributeAsIntList("CaseInsensitiveStringList", 5));
         Assert.assertThrows(() -> context.getAttributeAsIntList("NotNumeric", 5));
         // test the case of a missing key
         Assert.assertTrue(context.getAttributeAsIntList("MissingList", 5).isEmpty());
@@ -1585,6 +1609,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
                 .attribute("IntegerList", new int[]{0, 1, 2, 3})
                 .attribute("DoubleList", new double[]{1.8, 1.6, 2.1})
                 .attribute("StringList", new String[]{"1", "2"})
+                .attribute("CaseInsensitiveStringList", new String[]{"nan", "Infinity", "-inf"})
                 .attribute("NotNumeric", new String[]{"A", "B"})
                 .make();
         // test an empty value
@@ -1595,6 +1620,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
         Assert.assertEquals(context.getAttributeAsDoubleList("IntegerList", 5), Arrays.asList(0d, 1d, 2d, 3d));
         Assert.assertEquals(context.getAttributeAsDoubleList("DoubleList", 5), Arrays.asList(1.8, 1.6, 2.1));
         Assert.assertEquals(context.getAttributeAsDoubleList("StringList", 5), Arrays.asList(1d, 2d));
+        Assert.assertEquals(context.getAttributeAsDoubleList("CaseInsensitiveStringList", 5), Arrays.asList(Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY));
         Assert.assertThrows(() -> context.getAttributeAsDoubleList("NotNumeric", 5));
         // test the case of a missing key
         Assert.assertTrue(context.getAttributeAsDoubleList("MissingList", 5).isEmpty());
@@ -1609,6 +1635,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
                 .attribute("IntegerList", new int[]{0, 1, 2, 3})
                 .attribute("DoubleList", new double[]{1.8, 1.6, 2.1})
                 .attribute("StringList", new String[]{"1", "2"})
+                .attribute("CaseInsensitiveStringList", new String[]{"nan", "Infinity", "-inf"})
                 .attribute("NotNumeric", new String[]{"A", "B"})
                 .make();
         // test an empty value
@@ -1619,6 +1646,7 @@ public class VariantContextUnitTest extends VariantBaseTest {
         Assert.assertEquals(context.getAttributeAsStringList("IntegerList", "empty"), Arrays.asList("0", "1", "2", "3"));
         Assert.assertEquals(context.getAttributeAsStringList("DoubleList", "empty"), Arrays.asList("1.8", "1.6", "2.1"));
         Assert.assertEquals(context.getAttributeAsStringList("StringList", "empty"), Arrays.asList("1", "2"));
+        Assert.assertEquals(context.getAttributeAsStringList("CaseInsensitiveStringList", "empty"), Arrays.asList("nan", "Infinity", "-inf"));
         Assert.assertEquals(context.getAttributeAsStringList("NotNumeric", "empty"), Arrays.asList("A", "B"));
         // test the case of a missing key
         Assert.assertTrue(context.getAttributeAsStringList("MissingList", "empty").isEmpty());

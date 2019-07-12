@@ -25,7 +25,10 @@ package htsjdk.samtools;
 
 import htsjdk.HtsjdkTest;
 import htsjdk.samtools.metrics.MetricsFile;
+import htsjdk.samtools.util.BinaryCodec;
+import htsjdk.samtools.util.BlockCompressedInputStream;
 import htsjdk.samtools.util.CloseableIterator;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.SequenceUtil;
 import org.testng.Assert;
 import org.testng.annotations.DataProvider;
@@ -59,7 +62,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
      * @param presorted           If true, samText is in the order specified by sortOrder
      */
     private void testHelper(final SAMRecordSetBuilder samRecordSetBuilder, final SAMFileHeader.SortOrder sortOrder, final boolean presorted) throws Exception {
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SamReader samReader = samRecordSetBuilder.getSamReader()) {
@@ -76,10 +79,9 @@ public class BAMFileWriterTest extends HtsjdkTest {
         }
 
         final File tempMetrics = File.createTempFile("CGTagTest", ".validation_metrics");
-        try (
-                final SamReader samReader = SamReaderFactory.makeDefault().open(bamFile);
-                final OutputStream outputStream = new FileOutputStream(tempMetrics);
-                final PrintWriter printWriter = new PrintWriter(outputStream)) {
+        try (final SamReader samReader = SamReaderFactory.makeDefault().open(bamFile);
+             final OutputStream outputStream = new FileOutputStream(tempMetrics);
+             final PrintWriter printWriter = new PrintWriter(outputStream)) {
 
             new SamFileValidator(printWriter, 100).validateSamFileSummary(samReader, null);
         }
@@ -108,9 +110,6 @@ public class BAMFileWriterTest extends HtsjdkTest {
                 Assert.assertTrue(samIt1.hasNext());
                 final SAMRecord samRecord1 = samIt1.next();
                 final SAMRecord samRecord2 = samIt2.next();
-
-                // SAMRecords don't have this set, so stuff it in there
-                samRecord2.setIndexingBin(samRecord1.getIndexingBin());
 
                 // Force reference index attributes to be populated
                 samRecord1.getReferenceIndex();
@@ -151,7 +150,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
         }
 
         // make sure the records can actually be written out
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
         samHeader.setSortOrder(order);
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(samHeader, presorted, bamFile)) {
@@ -176,7 +175,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
         // sequence dictionary and unresolvable references
         final SAMFileHeader fakeHeader = new SAMFileHeader();
         fakeHeader.setSortOrder(SAMFileHeader.SortOrder.queryname);
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(fakeHeader, false, bamFile);) {
@@ -195,7 +194,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
         // sequence dictionary and unresolvable references
         final SAMFileHeader fakeHeader = new SAMFileHeader();
         fakeHeader.setSortOrder(SAMFileHeader.SortOrder.queryname);
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(fakeHeader, false, bamFile);) {
@@ -329,7 +328,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
 
         builder.addFrag("frag1", 0, 1, false, false, cigar.toString(), null, 30);
 
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(builder.getHeader(), false, bamFile)) {
@@ -340,7 +339,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
         try (final SamReader reader = SamReaderFactory.makeDefault().validationStringency(ValidationStringency.SILENT).open(bamFile)) {
             reader.iterator().forEachRemaining(samRecord -> {
                 samRecord.getCigar();
-                Assert.assertNotNull(samRecord.getIndexingBin());
+                samRecord.computeIndexingBin();
             });
         }
     }
@@ -444,7 +443,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
             rec.setAttribute(SAMTag.CG.name(), cigarEncoding);
         }
 
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(builder.getHeader(), false, bamFile)) {
@@ -466,7 +465,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
         builder.addFrag("frag1", 0, 1, false, false, cigar.toString(), null, 30);
         builder.addPair("pair1", 0, 1, 100_000, false, false, cigar.toString(), cigar.toString(), true, false, 30);
 
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SAMFileWriter bamWriter = new SAMFileWriterFactory().makeSAMOrBAMWriter(builder.getHeader(), false, bamFile)) {
@@ -501,7 +500,7 @@ public class BAMFileWriterTest extends HtsjdkTest {
     @Test
     public void testRealDataLongCigar() throws Exception {
         final File samFile = new File("src/test/resources/htsjdk/samtools/BAMCigarOverflowTest/cigar-64k.sam.gz");
-        final File bamFile = File.createTempFile("test.", BamFileIoUtils.BAM_FILE_EXTENSION);
+        final File bamFile = File.createTempFile("test.", FileExtensions.BAM);
         bamFile.deleteOnExit();
 
         try (final SamReader samReader = SamReaderFactory.make().open(samFile);
@@ -540,6 +539,20 @@ public class BAMFileWriterTest extends HtsjdkTest {
             //clear attribute before explicitly accessing cigar or attributes
             rec.setAttribute("xx", null);
             Assert.assertNull(rec.getAttribute("xx"));
+        }
+    }
+
+    @Test
+    public void testWriteHeader() throws IOException {
+        final SAMRecordSetBuilder builder = new SAMRecordSetBuilder(true, SAMFileHeader.SortOrder.coordinate);
+
+        final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        BAMFileWriter.writeHeader(baos, builder.getHeader());
+        baos.close();
+
+        try (BinaryCodec binaryCodec = new BinaryCodec(new DataInputStream(new BlockCompressedInputStream(new ByteArrayInputStream(baos.toByteArray()))))) {
+            SAMFileHeader samFileHeader = BAMFileReader.readHeader(binaryCodec, ValidationStringency.STRICT, null);
+            Assert.assertEquals(samFileHeader, builder.getHeader());
         }
     }
 }

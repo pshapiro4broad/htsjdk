@@ -62,6 +62,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Validates SAM files as follows:
@@ -208,10 +209,8 @@ public class SamFileValidator {
     }
 
     public void validateBamFileTermination(final File inputFile) {
-        BufferedInputStream inputStream = null;
         try {
-            inputStream = IOUtil.toBufferedStream(new FileInputStream(inputFile));
-            if (!BlockCompressedInputStream.isValidFile(inputStream)) {
+            if (!IOUtil.isBlockCompressed(inputFile.toPath())) {
                 return;
             }
             final BlockCompressedInputStream.FileTermination terminationState =
@@ -227,10 +226,6 @@ public class SamFileValidator {
             }
         } catch (IOException e) {
             throw new SAMException("IOException", e);
-        } finally {
-            if (inputStream != null) {
-                CloserUtil.close(inputStream);
-            }
         }
     }
 
@@ -415,7 +410,7 @@ public class SamFileValidator {
             addError(new SAMValidationError(Type.CG_TAG_FOUND_IN_ATTRIBUTES,
                     "The CG Tag should only be used in BAM format to hold a large cigar. " +
                             "It was found containing the value: " +
-                            record.getAttribute(SAMTagUtil.getSingleton().CG), record.getReadName(), recordNumber));
+                            record.getAttribute(SAMTag.CG.getBinaryTag()), record.getReadName(), recordNumber));
         }
     }
 
@@ -577,6 +572,14 @@ public class SamFileValidator {
                 if (!fileHeader.getSequenceDictionary().isSameDictionary(samSequenceDictionary)) {
                     addError(new SAMValidationError(Type.MISMATCH_FILE_SEQ_DICT, "Mismatch between file and sequence dictionary", null));
                 }
+            }
+            
+            final List<SAMSequenceRecord> longSeqs = fileHeader.getSequenceDictionary().getSequences().stream()
+                    .filter(s -> s.getSequenceLength() > GenomicIndexUtil.BIN_GENOMIC_SPAN).collect(Collectors.toList());
+
+            if (!longSeqs.isEmpty()) {
+                final String msg = "Reference sequences are too long for BAI indexing: " + StringUtil.join(", ", longSeqs);
+                addError(new SAMValidationError(Type.REF_SEQ_TOO_LONG_FOR_BAI, msg, null));
             }
         }
         if (fileHeader.getReadGroups().isEmpty()) {

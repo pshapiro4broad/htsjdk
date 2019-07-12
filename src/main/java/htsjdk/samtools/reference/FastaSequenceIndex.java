@@ -31,6 +31,7 @@ import htsjdk.samtools.util.IOUtil;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -38,6 +39,7 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Scanner;
 import java.util.regex.MatchResult;
 
@@ -56,7 +58,7 @@ public class FastaSequenceIndex implements Iterable<FastaSequenceIndexEntry> {
      * @throws FileNotFoundException if the index file cannot be found.
      */
     public FastaSequenceIndex( File indexFile ) {
-        this(indexFile == null ? null : indexFile.toPath());
+        this(IOUtil.toPath(indexFile));
     }
 
     /**
@@ -66,7 +68,19 @@ public class FastaSequenceIndex implements Iterable<FastaSequenceIndexEntry> {
      */
     public FastaSequenceIndex( Path indexFile ) {
         IOUtil.assertFileIsReadable(indexFile);
-        parseIndexFile(indexFile);
+        try (InputStream in = Files.newInputStream(indexFile)) {
+            parseIndexFile(in);
+        } catch (IOException e) {
+            throw new SAMException("Fasta index file could not be opened: " + indexFile, e);
+        }
+    }
+
+    /**
+     * Build a sequence index from the specified input stream.
+     * @param in InputStream to read from.
+     */
+    public FastaSequenceIndex(InputStream in) {
+        parseIndexFile(in);
     }
 
     /**
@@ -122,14 +136,17 @@ public class FastaSequenceIndex implements Iterable<FastaSequenceIndexEntry> {
         return true;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(sequenceEntries);
+    }
+
     /**
      * Parse the contents of an index file, caching the results internally.
-     * @param indexFile File to parse.
-     * @throws IOException Thrown if file could not be opened.
+     * @param in InputStream to parse.
      */
-    private void parseIndexFile(Path indexFile) {
-        try {
-            Scanner scanner = new Scanner(indexFile);
+    private void parseIndexFile(InputStream in) {
+        try (Scanner scanner = new Scanner(in)) {
             int sequenceIndex = 0;
             while( scanner.hasNext() ) {
                 // Tokenize and validate the index line.
@@ -145,19 +162,15 @@ public class FastaSequenceIndex implements Iterable<FastaSequenceIndexEntry> {
 
                 // Parse the index line.
                 String contig = tokens.group(1);
-                long size = Long.valueOf(tokens.group(2));
-                long location = Long.valueOf(tokens.group(3));
-                int basesPerLine = Integer.valueOf(tokens.group(4));
-                int bytesPerLine = Integer.valueOf(tokens.group(5));
+                long size = Long.parseLong(tokens.group(2));
+                long location = Long.parseLong(tokens.group(3));
+                int basesPerLine = Integer.parseInt(tokens.group(4));
+                int bytesPerLine = Integer.parseInt(tokens.group(5));
 
                 contig = SAMSequenceRecord.truncateSequenceName(contig);
                 // Build sequence structure
                 add(new FastaSequenceIndexEntry(contig,location,size,basesPerLine,bytesPerLine, sequenceIndex++) );
             }
-            scanner.close();
-        } catch (IOException e) {
-            throw new SAMException("Fasta index file could not be opened: " + indexFile, e);
-
         }
     }
 

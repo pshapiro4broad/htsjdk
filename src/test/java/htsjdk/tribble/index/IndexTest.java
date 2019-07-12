@@ -3,6 +3,7 @@ package htsjdk.tribble.index;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import htsjdk.HtsjdkTest;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.FeatureCodec;
 import htsjdk.tribble.TestUtils;
@@ -19,6 +20,7 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.FileSystem;
@@ -59,6 +61,13 @@ public class IndexTest extends HtsjdkTest {
         Assert.assertTrue(allSize >= Math.max(leftSize,rightSize), "Expected size of joint query " + allSize + " to be at least >= max of left " + leftSize + " and right queries " + rightSize);
     }
 
+    @Test()
+    public void testLoadFromStream() throws IOException {
+        LinearIndex index = (LinearIndex)IndexFactory.loadIndex(MassiveIndexFile.getAbsolutePath(), new FileInputStream(MassiveIndexFile));
+        List<String> sequenceNames = index.getSequenceNames();
+        Assert.assertEquals(sequenceNames.size(), 1);
+        Assert.assertEquals(sequenceNames.get(0), CHR);
+    }
 
     @DataProvider(name = "writeIndexData")
     public Object[][] writeIndexData() {
@@ -77,7 +86,7 @@ public class IndexTest extends HtsjdkTest {
     @Test(dataProvider = "writeIndexData")
     public void testWriteIndex(final File inputFile, final IndexFactory.IndexType type, final  FeatureCodec codec) throws Exception {
         // temp index file for this test
-        final File tempIndex = File.createTempFile("index", (type == IndexFactory.IndexType.TABIX) ? TabixUtils.STANDARD_INDEX_EXTENSION : Tribble.STANDARD_INDEX_EXTENSION);
+        final File tempIndex = File.createTempFile("index", (type == IndexFactory.IndexType.TABIX) ? FileExtensions.TABIX_INDEX : FileExtensions.TRIBBLE_INDEX);
         tempIndex.delete();
         tempIndex.deleteOnExit();
         // create the index

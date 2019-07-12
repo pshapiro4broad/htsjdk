@@ -3,10 +3,10 @@ package htsjdk.samtools;
 import htsjdk.HtsjdkTest;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
-import htsjdk.samtools.cram.build.CramIO;
 import htsjdk.samtools.cram.common.CramVersions;
 import htsjdk.samtools.cram.ref.ReferenceSource;
 import htsjdk.samtools.seekablestream.SeekableStream;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.Log;
 
 import htsjdk.samtools.util.SequenceUtil;
@@ -41,14 +41,19 @@ public class CRAMComplianceTest extends HtsjdkTest {
                 {"c1#noseq"},       // unsigned attributes: https://github.com/samtools/htsjdk/issues/499
                 {"c1#unknown"},     // unsigned attributes: https://github.com/samtools/htsjdk/issues/499
                 {"ce#5b"},          // reads with no read bases: https://github.com/samtools/htsjdk/issues/509
+                {"ce#1000"},        // SAMRecord mismatch: https://github.com/samtools/htsjdk/issues/1189
                 {"ce#tag_depadded"},// reads with no read bases: https://github.com/samtools/htsjdk/issues/509
                 {"ce#tag_padded"},  // reads with no read bases: https://github.com/samtools/htsjdk/issues/509
                 {"ce#unmap"},       // unmapped reads with non-zero MAPQ value that is not restored
                                     // https://github.com/samtools/htsjdk/issues/714
-                {"xx#triplet"},     // the version 2.1 variant of this file has a bad insertSize, which is
-                                    // probably residual detritus from https://github.com/samtools/htsjdk/issues/364
                 {"xx#minimal"},     // cigar string "5H0M5H" is restored as "10H"
                                     // https://github.com/samtools/htsjdk/issues/713
+                {"xx#repeated"},    // SAMRecord mismatch: https://github.com/samtools/htsjdk/issues/1189
+                {"xx#tlen"},        // SAMRecord mismatch: https://github.com/samtools/htsjdk/issues/1189
+                {"xx#tlen2"},       // SAMRecord mismatch: https://github.com/samtools/htsjdk/issues/1189
+                {"xx#triplet"},     // the version 2.1 variant of this file has a bad insertSize, which is
+                                    // probably residual detritus from https://github.com/samtools/htsjdk/issues/364
+                //{"md#1"},           // fails with "offensive record" errors: https://github.com/samtools/htsjdk/issues/1187
         };
     }
 
@@ -67,6 +72,7 @@ public class CRAMComplianceTest extends HtsjdkTest {
                 {"c1#pad1"},
                 {"c1#pad2"},
                 {"c1#pad3"},
+                {"c2#pad"},
                 {"ce#1"},
                 {"ce#2"},
                 {"ce#5"},
@@ -243,7 +249,7 @@ public class CRAMComplianceTest extends HtsjdkTest {
         SAMFileHeader samHeader;
         List<SAMRecord> bamRecords;
         try (FileSystem jimfs = Jimfs.newFileSystem(Configuration.unix())) {
-            final Path tempBam = jimfs.getPath("testCRAMToBAMToCRAM" + BamFileIoUtils.BAM_FILE_EXTENSION);
+            final Path tempBam = jimfs.getPath("testCRAMToBAMToCRAM" + FileExtensions.BAM);
             samHeader = getFileHeader(originalCRAMFile, referenceFile);
             writeRecordsToPath(copiedCRAMRecords, tempBam, referenceFile, samHeader);
             bamRecords = getSAMRecordsFromPath(tempBam, referenceFile);
@@ -252,7 +258,6 @@ public class CRAMComplianceTest extends HtsjdkTest {
         // compare to originals
         int i = 0;
         for (SAMRecord rec : bamRecords) {
-            rec.setIndexingBin(null);
             Assert.assertTrue(rec.equals(originalCRAMRecords.get(i++)));
         }
         Assert.assertEquals(i, originalCRAMRecords.size());
@@ -260,7 +265,7 @@ public class CRAMComplianceTest extends HtsjdkTest {
         // write the BAM records to a CRAM and read them back in
         List<SAMRecord> roundTripCRAMRecords;
         try (FileSystem jimfs = Jimfs.newFileSystem(Configuration.unix())) {
-            final Path tempCRAM = jimfs.getPath("testCRAMToBAMToCRAM" + CramIO.CRAM_FILE_EXTENSION);
+            final Path tempCRAM = jimfs.getPath("testCRAMToBAMToCRAM" + FileExtensions.CRAM);
             writeRecordsToPath(bamRecords, tempCRAM, referenceFile, samHeader);
             roundTripCRAMRecords = getSAMRecordsFromPath(tempCRAM, referenceFile);
         }
@@ -285,15 +290,10 @@ public class CRAMComplianceTest extends HtsjdkTest {
         final File originalBAMInputFile = new File(TEST_DATA_DIR, "CEUTrio.HiSeq.WGS.b37.NA12878.20.first.8000.bam");
         final File referenceFile = new File(TEST_DATA_DIR, "human_g1k_v37.20.subset.fasta");
 
-        // retrieve all records from the bam and reset the indexing bins to keep comparisons with
-        // cram records from failing
         List<SAMRecord> originalBAMRecords = getSAMRecordsFromFile(originalBAMInputFile, referenceFile);
-        for (int i = 0; i < originalBAMRecords.size(); i++) {
-            originalBAMRecords.get(i).setIndexingBin(null);
-        }
 
         // write the BAM records to a temporary CRAM
-        final File tempCRAMFile = File.createTempFile("testBAMThroughCRAMRoundTrip", CramIO.CRAM_FILE_EXTENSION);
+        final File tempCRAMFile = File.createTempFile("testBAMThroughCRAMRoundTrip", FileExtensions.CRAM);
         tempCRAMFile.deleteOnExit();
         SAMFileHeader samHeader = getFileHeader(originalBAMInputFile, referenceFile);
         writeRecordsToFile(originalBAMRecords, tempCRAMFile, referenceFile, samHeader);
@@ -318,16 +318,11 @@ public class CRAMComplianceTest extends HtsjdkTest {
         final File originalBAMInputFile = new File(TEST_DATA_DIR, "CEUTrio.HiSeq.WGS.b37.NA12878.20.first.8000.bam");
         final File referenceFile = new File(TEST_DATA_DIR, "human_g1k_v37.20.subset.fasta");
 
-        // retrieve all records from the bam and reset the indexing bins to keep comparisons with
-        // cram records from failing
         List<SAMRecord> originalBAMRecords = getSAMRecordsFromFile(originalBAMInputFile, referenceFile);
-        for (int i = 0; i < originalBAMRecords.size(); i++) {
-            originalBAMRecords.get(i).setIndexingBin(null);
-        }
 
         // write the BAM records to a temporary CRAM
         try (FileSystem jimfs = Jimfs.newFileSystem(Configuration.unix())) {
-            final Path tempCRAM = jimfs.getPath("testBAMThroughCRAMRoundTrip" + CramIO.CRAM_FILE_EXTENSION);
+            final Path tempCRAM = jimfs.getPath("testBAMThroughCRAMRoundTrip" + FileExtensions.CRAM);
             SAMFileHeader samHeader = getFileHeader(originalBAMInputFile, referenceFile);
             writeRecordsToPath(originalBAMRecords, tempCRAM, referenceFile, samHeader);
 
@@ -392,7 +387,7 @@ public class CRAMComplianceTest extends HtsjdkTest {
         // tests to fail since it can change the order of some unmapped reads - this is allowed
         // by the spec since the order is arbitrary for unmapped.
         try (final SAMFileWriter writer = new SAMFileWriterFactory()
-            .makeWriter(samHeader, true, targetPath, referenceFile)) {
+            .makeWriter(samHeader, true, targetPath, referenceFile.toPath())) {
             for (SAMRecord rec : recs) {
                 writer.addAlignment(rec);
             }

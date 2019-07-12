@@ -163,12 +163,13 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
     /**
      * Tags that are known to need the reverse complement if the read is reverse complemented.
      */
-    public static List<String> TAGS_TO_REVERSE_COMPLEMENT = Arrays.asList(SAMTag.E2.name(), SAMTag.SQ.name());
+    @SuppressWarnings("deprecated")
+    public static final List<String> TAGS_TO_REVERSE_COMPLEMENT = Arrays.asList(SAMTag.E2.name(), SAMTag.SQ.name());
 
     /**
      * Tags that are known to need the reverse if the read is reverse complemented.
      */
-    public static List<String> TAGS_TO_REVERSE = Arrays.asList(SAMTag.OQ.name(), SAMTag.U2.name());
+    public static final List<String> TAGS_TO_REVERSE = Arrays.asList(SAMTag.OQ.name(), SAMTag.U2.name());
 
     private String mReadName = null;
     private byte[] mReadBases = NULL_SEQUENCE;
@@ -187,7 +188,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
     private SAMBinaryTagAndValue mAttributes = null;
     protected Integer mReferenceIndex = null;
     protected Integer mMateReferenceIndex = null;
-    private Integer mIndexingBin = null;
 
     /**
      * Some attributes (e.g. CIGAR) are not decoded immediately.  Use this to decide how to validate when decoded.
@@ -594,8 +594,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         mAlignmentStart = value;
         // Clear cached alignment end
         mAlignmentEnd = NO_ALIGNMENT_START;
-        // Change to alignmentStart could change indexing bin
-        setIndexingBin(null);
     }
 
     /**
@@ -805,8 +803,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         mAlignmentBlocks = null;
         // Clear cached alignment end
         mAlignmentEnd = NO_ALIGNMENT_START;
-        // Change to cigar could change alignmentEnd, and thus indexing bin
-        setIndexingBin(null);
     }
 
     /**
@@ -843,8 +839,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      */
     public void setCigar(final Cigar cigar) {
         initializeCigar(cigar);
-        // Change to cigar could change alignmentEnd, and thus indexing bin
-        setIndexingBin(null);
     }
 
     /**
@@ -868,7 +862,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      * @throws ClassCastException if RG tag does not have a String value.
      */
     public SAMReadGroupRecord getReadGroup() {
-        final String rgId = (String)getAttribute(SAMTagUtil.getSingleton().RG);
+        final String rgId = (String)getAttribute(SAMTag.RG.getBinaryTag());
         if (rgId == null || getHeader() == null) {
             return null;
         } else {
@@ -885,8 +879,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
 
     public void setFlags(final int value) {
         mFlags = value;
-        // Could imply change to readUnmapped flag, which could change indexing bin
-        setIndexingBin(null);
     }
 
     /**
@@ -1042,8 +1034,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      */
     public void setReadUnmappedFlag(final boolean flag) {
         setFlag(flag, SAMFlag.READ_UNMAPPED.flag);
-        // Change to readUnmapped could change indexing bin
-        setIndexingBin(null);
     }
 
     /**
@@ -1162,7 +1152,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      * @return Appropriately typed tag value, or null if the requested tag is not present.
      */
     public Object getAttribute(final String tag) {
-        return getAttribute(SAMTagUtil.getSingleton().makeBinaryTag(tag));
+        return getAttribute(SAMTag.makeBinaryTag(tag));
     }
 
     /**
@@ -1196,7 +1186,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      * @throws {@link htsjdk.samtools.SAMException} if the value is out of range for a 32-bit unsigned value, or not a Number
      */
     public Long getUnsignedIntegerAttribute(final String tag) throws SAMException {
-        return getUnsignedIntegerAttribute(SAMTagUtil.getSingleton().makeBinaryTag(tag));
+        return getUnsignedIntegerAttribute(SAMTag.makeBinaryTag(tag));
     }
 
     /**
@@ -1219,11 +1209,11 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
                 return lValue;
             } else {
                 throw new SAMException("Unsigned integer value of tag " +
-                        SAMTagUtil.getSingleton().makeStringTag(tag) + " is out of bounds for a 32-bit unsigned integer: " + lValue);
+                        SAMTag.makeStringTag(tag) + " is out of bounds for a 32-bit unsigned integer: " + lValue);
             }
         } else {
             throw new SAMException("Unexpected attribute value data type " + value.getClass() + " for tag " +
-                    SAMTagUtil.getSingleton().makeStringTag(tag));
+                    SAMTag.makeStringTag(tag));
         }
     }
 
@@ -1374,7 +1364,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      * @throws SAMException if the tag is not present.
      */
     public boolean isUnsignedArrayAttribute(final String tag) {
-        final SAMBinaryTagAndValue tmp = this.mAttributes.find(SAMTagUtil.getSingleton().makeBinaryTag(tag));
+        final SAMBinaryTagAndValue tmp = this.mAttributes.find(SAMTag.makeBinaryTag(tag));
         if (tmp != null) return tmp.isUnsignedArray();
         throw new SAMException("Tag " + tag + " is not present in this SAMRecord");
     }
@@ -1419,10 +1409,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
      * String values are not validated to ensure that they conform to SAM spec.
      */
     public void setAttribute(final String tag, final Object value) {
-        if (value != null && value.getClass().isArray() && Array.getLength(value) == 0) {
-            throw new IllegalArgumentException("Empty value passed for tag " + tag);
-        }
-        setAttribute(SAMTagUtil.getSingleton().makeBinaryTag(tag), value);
+        setAttribute(SAMTag.makeBinaryTag(tag), value);
     }
 
     /**
@@ -1438,7 +1425,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         if (Array.getLength(value) == 0) {
             throw new IllegalArgumentException("Empty array passed to setUnsignedArrayAttribute for tag " + tag);
         }
-        setAttribute(SAMTagUtil.getSingleton().makeBinaryTag(tag), value, true);
+        setAttribute(SAMTag.makeBinaryTag(tag), value, true);
     }
 
     /**
@@ -1559,58 +1546,40 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         SAMBinaryTagAndValue binaryAttributes = getBinaryAttributes();
         final List<SAMTagAndValue> ret = new ArrayList<>();
         while (binaryAttributes != null) {
-            ret.add(new SAMTagAndValue(SAMTagUtil.getSingleton().makeStringTag(binaryAttributes.tag),
-                    binaryAttributes.value));
+            ret.add(new SAMTagAndValue(SAMTag.makeStringTag(binaryAttributes.tag),
+                                       binaryAttributes.value));
             binaryAttributes = binaryAttributes.getNext();
         }
         return ret;
     }
 
-    Integer getIndexingBin() {
-        return mIndexingBin;
-    }
-
     /**
-     * Used internally when writing BAMRecords.
-     * @param mIndexingBin c.f. http://samtools.sourceforge.net/SAM1.pdf
+     * @deprecated Use computeIndexingBin() if accessible or GenomicIndexUtil.regionToBin() otherwise.
      */
-    void setIndexingBin(final Integer mIndexingBin) {
-        this.mIndexingBin = mIndexingBin;
-    }
+    @Deprecated() public int computeIndexingBinIfAbsent(final SAMRecord alignment) { return alignment.computeIndexingBin(); }
 
     /**
-     * Does not change state of this.
+     * Computes the BAI indexing bin for the record. Invokes getAlignmentEnd() among other methods, which may
+     * cause the record to deserialize/parse the cigar is necessary.
+     *
      * @return indexing bin based on alignment start & end.
      */
     int computeIndexingBin() {
-        // regionToBin has zero-based, half-open API
-        final int alignmentStart = getAlignmentStart()-1;
+        final int alignmentStart = getAlignmentStart() - 1; // BIN uses 0-based half-open
         int alignmentEnd = getAlignmentEnd();
         if (alignmentEnd <= 0) {
             // If alignment end cannot be determined (e.g. because this read is not really aligned),
             // then treat this as a one base alignment for indexing purposes.
             alignmentEnd = alignmentStart + 1;
         }
-        return GenomicIndexUtil.regionToBin(alignmentStart, alignmentEnd);
-    }
 
-
-    /**
-     * Gets indexing bin if it is present otherwise compute it.
-     * @param alignment to compute indexing bin for.
-     * @return indexing bin.
-     */
-    public int computeIndexingBinIfAbsent(final SAMRecord alignment) {
-        if (alignment.getIndexingBin() != null) {
-            return alignment.getIndexingBin();
-        } else {
-            return getUshort(alignment.computeIndexingBin());
+        if (alignmentStart > GenomicIndexUtil.BIN_GENOMIC_SPAN || alignmentEnd > GenomicIndexUtil.BIN_GENOMIC_SPAN) {
+            throw new IllegalStateException("Read position too high for BAI bin indexing.");
         }
+
+        return GenomicIndexUtil.regionToBin(alignmentStart, alignmentEnd) & (int) BinaryCodec.MAX_USHORT;
     }
 
-    private int getUshort(int value) {
-        return value & (int) BinaryCodec.MAX_USHORT;
-    }
 
     /**
      * @return the SAMFileHeader for this record. If the header is null, the following SAMRecord methods may throw
@@ -1772,8 +1741,8 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         buffer.append(field);
     }
 
-    private String formatTagValue(final short tag, final Object value) {
-        final String tagString = SAMTagUtil.getSingleton().makeStringTag(tag);
+    private static String formatTagValue(final short tag, final Object value) {
+        final String tagString = SAMTag.makeStringTag(tag);
         if (value == null || value instanceof String) {
             return tagString + ":Z:" + value;
         } else if (value instanceof Integer || value instanceof Long ||
@@ -1856,8 +1825,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         if (mInferredInsertSize != samRecord.mInferredInsertSize) return false;
         if (mMappingQuality != samRecord.mMappingQuality) return false;
         if (mMateAlignmentStart != samRecord.mMateAlignmentStart) return false;
-        if (mIndexingBin != null ? !mIndexingBin.equals(samRecord.mIndexingBin) : samRecord.mIndexingBin != null)
-            return false;
         if (mMateReferenceIndex != null ? !mMateReferenceIndex.equals(samRecord.mMateReferenceIndex) : samRecord.mMateReferenceIndex != null)
             return false;
         if (mReferenceIndex != null ? !mReferenceIndex.equals(samRecord.mReferenceIndex) : samRecord.mReferenceIndex != null)
@@ -1898,7 +1865,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         result = 31 * result + (mAttributes != null ? mAttributes.hashCode() : 0);
         result = 31 * result + (mReferenceIndex != null ? mReferenceIndex.hashCode() : 0);
         result = 31 * result + (mMateReferenceIndex != null ? mMateReferenceIndex.hashCode() : 0);
-        result = 31 * result + (mIndexingBin != null ? mIndexingBin.hashCode() : 0);
         return result;
     }
 
@@ -2065,7 +2031,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
 */
         }
         // Validate the RG ID is found in header
-        final String rgId = (String)getAttribute(SAMTagUtil.getSingleton().RG);
+        final String rgId = (String)getAttribute(SAMTag.RG.getBinaryTag());
         if (rgId != null && getHeader() != null && getHeader().getReadGroup(rgId) == null) {
                 if (ret == null) ret = new ArrayList<>();
                 ret.add(new SAMValidationError(SAMValidationError.Type.READ_GROUP_NOT_FOUND,
@@ -2078,12 +2044,21 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
             ret.addAll(errors);
             if (firstOnly) return ret;
         }
-        // TODO(mccowan): Is this asking "is this the primary alignment"?
+
+        /*
+        The SAM specification allows both empty bases and qualities.  However, for data generated with color space
+        information (ex. SOLiD sequencing) or flow signal information (ex. Ion Torrent sequencing), we have enforced
+        that certain auxiliary tags are present: CS and CQ for color space data, and FZ for flow signal data.  See section
+        1.6 ("Technology-specific data") in the SAM specification (dated Jan 30 2019).  We have relaxed this constraint
+        to follow the SAM specification and a requested need to represent data in such a spec-compliant way.  For more
+        information, see:
+          1. https://github.com/samtools/htsjdk/issues/1174
+          2. https://github.com/samtools/htsjdk/pull/1360
         if (this.getReadLength() == 0 && !this.isSecondaryAlignment()) {
-            final Object fz = getAttribute(SAMTagUtil.getSingleton().FZ);
+            final Object fz = getAttribute(SAMTag.FZ.getBinaryTag());
             if (fz == null) {
-                final String cq = (String)getAttribute(SAMTagUtil.getSingleton().CQ);
-                final String cs = (String)getAttribute(SAMTagUtil.getSingleton().CS);
+                final String cq = (String)getAttribute(SAMTag.CQ.getBinaryTag());
+                final String cs = (String)getAttribute(SAMTag.CS.getBinaryTag());
                 if (cq == null || cq.isEmpty() || cs == null || cs.isEmpty()) {
                     if (ret == null) ret = new ArrayList<>();
                     ret.add(new SAMValidationError(SAMValidationError.Type.EMPTY_READ,
@@ -2107,32 +2082,13 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
                 }
             }
         }
+        */
+  
         if (this.getReadLength() != getBaseQualities().length &&  !Arrays.equals(getBaseQualities(), NULL_QUALS)) {
             if (ret == null) ret = new ArrayList<>();
             ret.add(new SAMValidationError(SAMValidationError.Type.MISMATCH_READ_LENGTH_AND_QUALS_LENGTH,
                     "Read length does not match quals length", getReadName()));
             if (firstOnly) return ret;
-        }
-
-        if (this.getAlignmentStart() != NO_ALIGNMENT_START) {
-            final SAMSequenceRecord sequence = getHeader() != null ? getHeader().getSequence(getReferenceName()) : null;
-            if (sequence != null && SAMUtils.isReferenceSequenceCompatibleWithBAI(sequence)) {
-                if (getValidationStringency() != ValidationStringency.SILENT) {
-                    if (getReferenceName() != null) {
-                        LOG.warn(String.format("%s reference length is too large for BAM bin field. %s record bin field value is incorrect.",
-                                getReferenceName(), getReadName()));
-                    } else {
-                        LOG.warn(String.format("Reference length is too large for BAM bin field. %s record bin field value is incorrect.",
-                                getReadName()));
-                    }
-                }
-            } else if (isIndexingBinNotEqualsComputedBin()) {
-                if (ret == null) ret = new ArrayList<>();
-                ret.add(new SAMValidationError(SAMValidationError.Type.INVALID_INDEXING_BIN,
-                        "bin field of BAM record does not equal value computed based on alignment start and end, and length of sequence to which read is aligned",
-                        getReadName()));
-                if (firstOnly) return ret;
-            }
         }
 
         if (getMateReferenceName().equals(SAMRecord.NO_ALIGNMENT_REFERENCE_NAME) &&
@@ -2165,10 +2121,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
             return null;
         }
         return ret;
-    }
-
-    private boolean isIndexingBinNotEqualsComputedBin() {
-        return this.getIndexingBin() != null && this.computeIndexingBin() != this.getIndexingBin();
     }
 
     /**
@@ -2284,7 +2236,6 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
         if (null != attributes) {
             newSAM.setAttributes(attributes.deepCopy());
         }
-        newSAM.setIndexingBin(getIndexingBin());
 
         return newSAM;
     }
@@ -2311,7 +2262,7 @@ public class SAMRecord implements Cloneable, Locatable, Serializable {
             builder.append(" unmapped read.");
         }
         else {
-            builder.append(" aligned read.");
+            builder.append(String.format(" aligned to %s:%d-%d.", getContig(), getAlignmentStart(), getAlignmentEnd()));
         }
 
         return builder.toString();

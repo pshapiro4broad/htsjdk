@@ -23,12 +23,14 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.BinaryCodec;
 import htsjdk.samtools.util.CigarUtil;
 import htsjdk.samtools.util.CloserUtil;
 import htsjdk.samtools.util.CoordMath;
 import htsjdk.samtools.util.RuntimeEOFException;
 import htsjdk.samtools.util.StringUtil;
+import htsjdk.tribble.annotation.Strand;
 
 import java.io.File;
 import java.io.IOException;
@@ -40,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 
@@ -686,6 +689,18 @@ public final class SAMUtils {
     }
 
     /**
+     * Returns the virtual file offset of the first record in a BAM file - i.e. the virtual file
+     * offset after skipping over the text header and the sequence records.
+     */
+    public static long findVirtualOffsetOfFirstRecordInBam(final SeekableStream seekableStream) {
+        try {
+            return BAMFileReader.findVirtualOffsetOfFirstRecord(seekableStream);
+        } catch (final IOException ioe) {
+            throw new RuntimeEOFException(ioe);
+        }
+    }
+
+    /**
      * Given a Cigar, Returns blocks of the sequence that have been aligned directly to the
      * reference sequence. Note that clipped portions, and inserted and deleted bases (vs. the reference)
      * are not represented in the alignment blocks.
@@ -1127,7 +1142,7 @@ public final class SAMUtils {
         if (record == null) throw new IllegalArgumentException("record is null");
         if (record.getHeader() == null) throw new IllegalArgumentException("record.getHeader() is null");
         /* extract value of SA tag */
-        final Object saValue = record.getAttribute(SAMTagUtil.getSingleton().SA);
+        final Object saValue = record.getAttribute(SAMTag.SA.getBinaryTag());
         if (saValue == null) return Collections.emptyList();
         if (!(saValue instanceof String)) throw new SAMException(
                 "Expected a String for attribute 'SA' but got " + saValue.getClass() + ". Record: " + record);
@@ -1220,7 +1235,7 @@ public final class SAMUtils {
             /* fill NM */
             try {
                 if (!commaStrs[5].equals("*")) {
-                    otherRec.setAttribute(SAMTagUtil.getSingleton().NM, Integer.parseInt(commaStrs[5]));
+                    otherRec.setAttribute(SAMTag.NM.getBinaryTag(), Integer.parseInt(commaStrs[5]));
                 }
             } catch (final NumberFormatException err) {
                 throw new SAMException("bad NM in " + semiColonStr + ". Record: " + record, err);
@@ -1238,10 +1253,46 @@ public final class SAMUtils {
     }
 
     /**
+     * @deprecated because the method does the exact opposite of what it says.  Use the correctly named
+     *             isReferenceSequenceIncompatibleWithBAI() instead.
+     */
+    @Deprecated public static boolean isReferenceSequenceCompatibleWithBAI(final SAMSequenceRecord sequence) {
+        return isReferenceSequenceIncompatibleWithBAI(sequence);
+    }
+
+    /**
      * Checks if reference sequence is compatible with BAI indexing format.
      * @param sequence reference sequence.
      */
-    public static boolean isReferenceSequenceCompatibleWithBAI(final SAMSequenceRecord sequence) {
+    public static boolean isReferenceSequenceIncompatibleWithBAI(final SAMSequenceRecord sequence) {
         return sequence.getSequenceLength() > GenomicIndexUtil.BIN_GENOMIC_SPAN;
+    }
+
+    /**
+     * Function to create the OA tag value from a record. The OA tag contains the mapping information
+     * of a record encoded as a comma-separated string (REF,POS,STRAND,CIGAR,MAPPING_QUALITY,NM_TAG_VALUE)
+     * @param record to use for generating the OA tag
+     * @return the OA tag string value
+     */
+    public static String calculateOATagValue(SAMRecord record) {
+        if (record.getReferenceName().contains(",")) {
+            throw new SAMException(String.format("Reference name for record %s contains a comma character.", record.getReadName()));
+        }
+        final String oaValue;
+        if (record.getReadUnmappedFlag()) {
+            oaValue = String.format("*,0,%s,*,%s,",
+                    record.getReadNegativeStrandFlag() ? Strand.NEGATIVE : Strand.POSITIVE,
+                    record.getMappingQuality());
+        } else {
+            oaValue = String.format("%s,%s,%s,%s,%s,%s",
+                    record.getReferenceName(),
+                    record.getAlignmentStart(),
+                    record.getReadNegativeStrandFlag() ? Strand.NEGATIVE : Strand.POSITIVE,
+                    record.getCigarString(),
+                    record.getMappingQuality(),
+                    Optional.ofNullable(record.getAttribute(SAMTag.NM.name())).orElse(""));
+        }
+        return oaValue;
+
     }
 }

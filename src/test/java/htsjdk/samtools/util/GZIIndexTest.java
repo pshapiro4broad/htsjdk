@@ -30,6 +30,8 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -56,12 +58,20 @@ public class GZIIndexTest extends HtsjdkTest {
     }
 
     @Test(dataProvider = "indexFiles")
+    public void testLoadIndexFromStream(final File indexFile, final int expectedBlocks) throws Exception {
+        try (InputStream in = new FileInputStream(indexFile)) {
+            final GZIIndex index = GZIIndex.loadIndex(indexFile.toString(), in);
+            Assert.assertEquals(index.getNumberOfBlocks(), expectedBlocks);
+        }
+    }
+
+    @Test(dataProvider = "indexFiles")
     public void testWriteIndex(final File indexFile, final int exprectedBlocks) throws Exception {
         // load the index and write it down
         final GZIIndex index = GZIIndex.loadIndex(indexFile.toPath());
         final File temp = File.createTempFile("testWriteIndex", indexFile.getName());
         temp.deleteOnExit();
-        index.writeIndex(temp.toPath());
+        index.writeIndex(Files.newOutputStream(temp.toPath()));
 
         // test equal byte representation on disk
         final byte[] expected = Files.readAllBytes(indexFile.toPath());
@@ -118,5 +128,4 @@ public class GZIIndexTest extends HtsjdkTest {
         Assert.assertEquals(BlockCompressedFilePointerUtil.getBlockAddress(virtualOffset), expectedBlockAddress);
         Assert.assertEquals(BlockCompressedFilePointerUtil.getBlockOffset(virtualOffset), expectedBlockOffset);
     }
-
 }

@@ -20,34 +20,152 @@ package htsjdk.samtools.cram.encoding.reader;
 import htsjdk.samtools.SAMFormatException;
 import htsjdk.samtools.SAMRecord;
 import htsjdk.samtools.ValidationStringency;
-import htsjdk.samtools.cram.encoding.readfeatures.BaseQualityScore;
-import htsjdk.samtools.cram.encoding.readfeatures.Bases;
-import htsjdk.samtools.cram.encoding.readfeatures.Deletion;
-import htsjdk.samtools.cram.encoding.readfeatures.HardClip;
-import htsjdk.samtools.cram.encoding.readfeatures.InsertBase;
-import htsjdk.samtools.cram.encoding.readfeatures.Insertion;
-import htsjdk.samtools.cram.encoding.readfeatures.Padding;
-import htsjdk.samtools.cram.encoding.readfeatures.ReadBase;
-import htsjdk.samtools.cram.encoding.readfeatures.ReadFeature;
-import htsjdk.samtools.cram.encoding.readfeatures.RefSkip;
-import htsjdk.samtools.cram.encoding.readfeatures.Scores;
-import htsjdk.samtools.cram.encoding.readfeatures.SoftClip;
-import htsjdk.samtools.cram.encoding.readfeatures.Substitution;
-import htsjdk.samtools.cram.structure.CramCompressionRecord;
-import htsjdk.samtools.cram.structure.ReadTag;
+import htsjdk.samtools.cram.encoding.readfeatures.*;
+import htsjdk.samtools.cram.ref.ReferenceContext;
+import htsjdk.samtools.cram.structure.*;
+import htsjdk.samtools.cram.io.BitInputStream;
+import htsjdk.samtools.util.RuntimeIOException;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.Charset;
 import java.util.LinkedList;
+import java.util.Map;
+import java.util.stream.Collectors;
 
-public class CramRecordReader extends AbstractReader {
+public class CramRecordReader {
+    private final DataSeriesReader<Integer> bitFlagsCodec;
+    private final DataSeriesReader<Integer> compressionBitFlagsCodec;
+    private final DataSeriesReader<Integer> readLengthCodec;
+    private final DataSeriesReader<Integer> alignmentStartCodec;
+    private final DataSeriesReader<Integer> readGroupCodec;
+    private final DataSeriesReader<byte[]> readNameCodec;
+    private final DataSeriesReader<Integer> distanceToNextFragmentCodec;
+    private final Map<Integer, DataSeriesReader<byte[]>> tagValueCodecs;
+    private final DataSeriesReader<Integer> numberOfReadFeaturesCodec;
+    private final DataSeriesReader<Integer> readFeaturePositionCodec;
+    private final DataSeriesReader<Byte> readFeatureCodeCodec;
+    private final DataSeriesReader<Byte> baseCodec;
+    private final DataSeriesReader<Byte> qualityScoreCodec;
+    private final DataSeriesReader<byte[]> qualityScoreArrayCodec;
+    private final DataSeriesReader<Byte> baseSubstitutionCodec;
+    private final DataSeriesReader<byte[]> insertionCodec;
+    private final DataSeriesReader<byte[]> softClipCodec;
+    private final DataSeriesReader<Integer> hardClipCodec;
+    private final DataSeriesReader<Integer> paddingCodec;
+    private final DataSeriesReader<Integer> deletionLengthCodec;
+    private final DataSeriesReader<Integer> mappingScoreCodec;
+    private final DataSeriesReader<Integer> mateBitFlagCodec;
+    private final DataSeriesReader<Integer> mateReferenceIdCodec;
+    private final DataSeriesReader<Integer> mateAlignmentStartCodec;
+    private final DataSeriesReader<Integer> insertSizeCodec;
+    private final DataSeriesReader<Integer> tagIdListCodec;
+    private final DataSeriesReader<Integer> refIdCodec;
+    private final DataSeriesReader<Integer> refSkipCodec;
+    private final DataSeriesReader<byte[]> basesCodec;
+    private final DataSeriesReader<byte[]> scoresCodec;
+
+    private final Charset charset = Charset.forName("UTF8");
+
+    private final boolean captureReadNames;
+    private final byte[][][] tagIdDictionary;
+    private final ReferenceContext refContext;
+    protected final ValidationStringency validationStringency;
+
+    protected final boolean APDelta;
+
+    private final Map<DataSeries, EncodingParams> encodingMap;
+    private final BitInputStream coreBlockInputStream;
+    private final Map<Integer, ByteArrayInputStream> externalBlockInputMap;
+
     private CramCompressionRecord prevRecord;
-    private ValidationStringency validationStringency;
+    private int recordCounter = 0;
 
-    public CramRecordReader(ValidationStringency validationStringency) {
+
+    /**
+     * Initialize a Cram Record Reader
+     *
+     * @param coreInputStream Core data block bit stream, to be read by non-external Encodings
+     * @param externalInputMap External data block byte stream map, to be read by external Encodings
+     * @param header the associated Cram Compression Header
+     * @param refContext the reference context to assign to these records
+     * @param validationStringency how strict to be when reading this CRAM record
+     */
+    public CramRecordReader(final BitInputStream coreInputStream,
+                            final Map<Integer, ByteArrayInputStream> externalInputMap,
+                            final CompressionHeader header,
+                            final ReferenceContext refContext,
+                            final ValidationStringency validationStringency) {
+        this.captureReadNames = header.readNamesIncluded;
+        this.tagIdDictionary = header.dictionary;
+        this.refContext = refContext;
         this.validationStringency = validationStringency;
+        this.APDelta = header.APDelta;
+
+        this.encodingMap = header.encodingMap;
+        this.coreBlockInputStream = coreInputStream;
+        this.externalBlockInputMap = externalInputMap;
+
+        bitFlagsCodec =                 createDataReader(DataSeries.BF_BitFlags);
+        compressionBitFlagsCodec =      createDataReader(DataSeries.CF_CompressionBitFlags);
+        readLengthCodec =               createDataReader(DataSeries.RL_ReadLength);
+        alignmentStartCodec =           createDataReader(DataSeries.AP_AlignmentPositionOffset);
+        readGroupCodec =                createDataReader(DataSeries.RG_ReadGroup);
+        readNameCodec =                 createDataReader(DataSeries.RN_ReadName);
+        distanceToNextFragmentCodec =   createDataReader(DataSeries.NF_RecordsToNextFragment);
+        numberOfReadFeaturesCodec =     createDataReader(DataSeries.FN_NumberOfReadFeatures);
+        readFeaturePositionCodec =      createDataReader(DataSeries.FP_FeaturePosition);
+        readFeatureCodeCodec =          createDataReader(DataSeries.FC_FeatureCode);
+        baseCodec =                     createDataReader(DataSeries.BA_Base);
+        qualityScoreCodec =             createDataReader(DataSeries.QS_QualityScore);
+        baseSubstitutionCodec =         createDataReader(DataSeries.BS_BaseSubstitutionCode);
+        insertionCodec =                createDataReader(DataSeries.IN_Insertion);
+        softClipCodec =                 createDataReader(DataSeries.SC_SoftClip);
+        hardClipCodec =                 createDataReader(DataSeries.HC_HardClip);
+        paddingCodec =                  createDataReader(DataSeries.PD_padding);
+        deletionLengthCodec =           createDataReader(DataSeries.DL_DeletionLength);
+        mappingScoreCodec =             createDataReader(DataSeries.MQ_MappingQualityScore);
+        mateBitFlagCodec =              createDataReader(DataSeries.MF_MateBitFlags);
+        mateReferenceIdCodec =          createDataReader(DataSeries.NS_NextFragmentReferenceSequenceID);
+        mateAlignmentStartCodec =       createDataReader(DataSeries.NP_NextFragmentAlignmentStart);
+        insertSizeCodec =               createDataReader(DataSeries.TS_InsertSize);
+        tagIdListCodec =                createDataReader(DataSeries.TL_TagIdList);
+        refIdCodec =                    createDataReader(DataSeries.RI_RefId);
+        refSkipCodec =                  createDataReader(DataSeries.RS_RefSkip);
+        basesCodec =                    createDataReader(DataSeries.BB_bases);
+        scoresCodec =                   createDataReader(DataSeries.QQ_scores);
+
+        // special case: re-encodes QS as a byte array
+        qualityScoreArrayCodec = new DataSeriesReader<>(DataSeriesType.BYTE_ARRAY, header.encodingMap.get(DataSeries.QS_QualityScore), coreInputStream, externalInputMap);
+
+        tagValueCodecs = header.tMap.entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey,
+                        mapEntry -> new DataSeriesReader<>(DataSeriesType.BYTE_ARRAY, mapEntry.getValue(), coreInputStream, externalInputMap)));
     }
 
-    @SuppressWarnings("ConstantConditions")
-    public void read(final CramCompressionRecord cramRecord) {
+    /**
+     * Look up a Data Series in the Cram Compression Header's Encoding Map.  If found, create a Data Reader
+     *
+     * @param dataSeries Which Data Series to write
+     * @param <T> The Java data type associated with the Data Series
+     * @return a Data Reader for the given Data Series, or null if it's not in the encoding map
+     */
+    private <T> DataSeriesReader<T> createDataReader(DataSeries dataSeries) {
+        if (encodingMap.containsKey(dataSeries)) {
+            return new DataSeriesReader<>(dataSeries.getType(), encodingMap.get(dataSeries), coreBlockInputStream, externalBlockInputMap);
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Read a Cram Compression Record, using this class's Encodings
+     *
+     * @param cramRecord the Cram Compression Record to read into
+     * @param prevAlignmentStart the alignmentStart of the previous record, for delta calculation
+     * @return the alignmentStart of the newly-read record
+     */
+    public int read(final CramCompressionRecord cramRecord, final int prevAlignmentStart) {
         try {
             // int mark = testCodec.readData();
             // if (Writer.TEST_MARK != mark) {
@@ -58,33 +176,39 @@ public class CramRecordReader extends AbstractReader {
 
             cramRecord.flags = bitFlagsCodec.readData();
             cramRecord.compressionFlags = compressionBitFlagsCodec.readData();
-            if (refId == -2)
+            if (refContext.isMultiRef()) {
                 cramRecord.sequenceId = refIdCodec.readData();
-            else
-                cramRecord.sequenceId = refId;
+            } else {
+                // either unmapped (-1) or a valid ref
+                cramRecord.sequenceId = refContext.getSerializableId();
+            }
 
             cramRecord.readLength = readLengthCodec.readData();
-            if (APDelta)
-                cramRecord.alignmentDelta = alignmentStartCodec.readData();
-            else
+            if (APDelta) {
+                cramRecord.alignmentStart = prevAlignmentStart + alignmentStartCodec.readData();
+            } else {
                 cramRecord.alignmentStart = alignmentStartCodec.readData();
+            }
+
             cramRecord.readGroupID = readGroupCodec.readData();
 
-            if (captureReadNames)
+            if (captureReadNames) {
                 cramRecord.readName = new String(readNameCodec.readData(), charset);
+            }
 
             // mate record:
             if (cramRecord.isDetached()) {
                 cramRecord.mateFlags = mateBitFlagCodec.readData();
-                if (!captureReadNames)
+                if (!captureReadNames) {
                     cramRecord.readName = new String(readNameCodec.readData(), charset);
+                }
 
                 cramRecord.mateSequenceID = mateReferenceIdCodec.readData();
                 cramRecord.mateAlignmentStart = mateAlignmentStartCodec.readData();
                 cramRecord.templateSize = insertSizeCodec.readData();
-                detachedCount++;
-            } else if (cramRecord.isHasMateDownStream())
+            } else if (cramRecord.isHasMateDownStream()) {
                 cramRecord.recordsToNextFragment = distanceToNextFragmentCodec.readData();
+            }
 
             final Integer tagIdList = tagIdListCodec.readData();
             final byte[][] ids = tagIdDictionary[tagIdList];
@@ -93,8 +217,8 @@ public class CramRecordReader extends AbstractReader {
                 cramRecord.tags = new ReadTag[tagCount];
                 for (int i = 0; i < ids.length; i++) {
                     final int id = ReadTag.name3BytesToInt(ids[i]);
-                    final DataReader<byte[]> dataReader = tagValueCodecs.get(id);
-                    final ReadTag tag = new ReadTag(id, dataReader.readData(), validationStringency);
+                    final DataSeriesReader<byte[]> dataSeriesReader = tagValueCodecs.get(id);
+                    final ReadTag tag = new ReadTag(id, dataSeriesReader.readData(), validationStringency);
                     cramRecord.tags[i] = tag;
                 }
             }
@@ -103,7 +227,7 @@ public class CramRecordReader extends AbstractReader {
                 // reading read features:
                 final int size = numberOfReadFeaturesCodec.readData();
                 int prevPos = 0;
-                final java.util.List<ReadFeature> readFeatures = new LinkedList<ReadFeature>();
+                final java.util.List<ReadFeature> readFeatures = new LinkedList<>();
                 cramRecord.readFeatures = readFeatures;
                 for (int i = 0; i < size; i++) {
                     final Byte operator = readFeatureCodeCodec.readData();
@@ -171,7 +295,7 @@ public class CramRecordReader extends AbstractReader {
                 // mapping quality:
                 cramRecord.mappingQuality = mappingScoreCodec.readData();
                 if (cramRecord.isForcePreserveQualityScores()) {
-                    cramRecord.qualityScores = qualityScoresCodec.readDataArray(cramRecord.readLength);
+                    cramRecord.qualityScores = qualityScoreArrayCodec.readDataArray(cramRecord.readLength);
                 }
             } else {
                 if (cramRecord.isUnknownBases()) {
@@ -179,13 +303,14 @@ public class CramRecordReader extends AbstractReader {
                     cramRecord.qualityScores = SAMRecord.NULL_QUALS;
                 } else {
                     final byte[] bases = new byte[cramRecord.readLength];
-                    for (int i = 0; i < bases.length; i++)
+                    for (int i = 0; i < bases.length; i++) {
                         bases[i] = baseCodec.readData();
+                    }
+
                     cramRecord.readBases = bases;
 
-
                     if (cramRecord.isForcePreserveQualityScores()) {
-                        cramRecord.qualityScores = qualityScoresCodec.readDataArray(cramRecord.readLength);
+                        cramRecord.qualityScores = qualityScoreArrayCodec.readDataArray(cramRecord.readLength);
                     }
                 }
             }
@@ -206,7 +331,10 @@ public class CramRecordReader extends AbstractReader {
                 System.err.printf("Failed at record %d. Here is the previously read record: %s\n", recordCounter,
                         prevRecord.toString());
             }
-            throw new RuntimeException(e);
+            throw new RuntimeIOException(e);
         }
+
+        return cramRecord.alignmentStart;
     }
+
 }

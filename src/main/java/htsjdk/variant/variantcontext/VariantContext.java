@@ -29,11 +29,7 @@ import htsjdk.tribble.Feature;
 import htsjdk.tribble.TribbleException;
 import htsjdk.tribble.util.ParsingUtils;
 import htsjdk.variant.utils.GeneralUtils;
-import htsjdk.variant.vcf.VCFCompoundHeaderLine;
-import htsjdk.variant.vcf.VCFConstants;
-import htsjdk.variant.vcf.VCFHeader;
-import htsjdk.variant.vcf.VCFHeaderLineCount;
-import htsjdk.variant.vcf.VCFHeaderLineType;
+import htsjdk.variant.vcf.*;
 
 import java.io.Serializable;
 import java.util.*;
@@ -215,7 +211,6 @@ import java.util.stream.Collectors;
  *     asking for a fully decoded version of the VC.
  * <!-- </s3> -->
  *
- * @author depristo
  */
 public class VariantContext implements Feature, Serializable {
     public static final long serialVersionUID = 1L;
@@ -823,8 +818,9 @@ public class VariantContext implements Feature, Serializable {
             return true;
 
         final List<Allele> allelesToConsider = considerRefAllele ? getAlleles() : getAlternateAlleles();
-        for ( Allele a : allelesToConsider ) {
-            if ( a.equals(allele, ignoreRefState) )
+        for (int i = 0, allelesToConsiderSize = allelesToConsider.size(); i < allelesToConsiderSize; i++) {
+            Allele anAllelesToConsider = allelesToConsider.get(i);
+            if (anAllelesToConsider.equals(allele, ignoreRefState))
                 return true;
         }
 
@@ -1248,24 +1244,24 @@ public class VariantContext implements Feature, Serializable {
         validateAttributeIsExpectedSize(VCFConstants.ALLELE_COUNT_KEY, numberOfAlternateAlleles);
         validateAttributeIsExpectedSize(VCFConstants.ALLELE_FREQUENCY_KEY, numberOfAlternateAlleles);
 
-        if ( !hasGenotypes() )
+        if (!hasGenotypes())
             return;
 
         // AN
-        if ( hasAttribute(VCFConstants.ALLELE_NUMBER_KEY) ) {
-            final int reportedAN = Integer.valueOf(getAttribute(VCFConstants.ALLELE_NUMBER_KEY).toString());
+        if (hasAttribute(VCFConstants.ALLELE_NUMBER_KEY)) {
+            final int reportedAN = Integer.parseInt(getAttribute(VCFConstants.ALLELE_NUMBER_KEY).toString());
             final int observedAN = getCalledChrCount();
             if ( reportedAN != observedAN )
                 throw new TribbleException.InternalCodecException(String.format("the Allele Number (AN) tag is incorrect for the record at position %s:%d, %d vs. %d", getContig(), getStart(), reportedAN, observedAN));
         }
 
         // AC
-        if ( hasAttribute(VCFConstants.ALLELE_COUNT_KEY) ) {
+        if (hasAttribute(VCFConstants.ALLELE_COUNT_KEY)) {
             final ArrayList<Integer> observedACs = new ArrayList<>();
 
             // if there are alternate alleles, record the relevant tags
-            if ( numberOfAlternateAlleles > 0 ) {
-                for ( Allele allele : getAlternateAlleles() ) {
+            if (numberOfAlternateAlleles > 0) {
+                for (Allele allele : getAlternateAlleles()) {
                     observedACs.add(getCalledChrCount(allele));
                 }
             }
@@ -1277,8 +1273,8 @@ public class VariantContext implements Feature, Serializable {
 
             for (int i = 0; i < observedACs.size(); i++) {
                 // need to cast to int to make sure we don't have an issue below with object equals (earlier bug) - EB
-                final int reportedAC = Integer.valueOf(reportedACs.get(i).toString());
-                if ( reportedAC != observedACs.get(i) )
+                final int reportedAC = Integer.parseInt(reportedACs.get(i).toString());
+                if (reportedAC != observedACs.get(i))
                     throw new TribbleException.InternalCodecException(String.format("the Allele Count (AC) tag is incorrect for the record at position %s:%d, %s vs. %d", getContig(), getStart(), reportedAC, observedACs.get(i)));
             }
         }
@@ -1353,9 +1349,12 @@ public class VariantContext implements Feature, Serializable {
     private void validateGenotypes() {
         if ( this.genotypes == null ) throw new IllegalStateException("Genotypes is null");
 
-        for ( final Genotype g : this.genotypes ) {
-            if ( g.isAvailable() ) {
-                for ( Allele gAllele : g.getAlleles() ) {
+        for ( int i = 0; i < genotypes.size(); i++ ) {
+            Genotype genotype = genotypes.get(i);
+            if ( genotype.isAvailable() ) {
+                final List<Allele> alleles = genotype.getAlleles();
+                for ( int j = 0, size = alleles.size(); j < size; j++ ) {
+                    final Allele gAllele = alleles.get(j);
                     if ( ! hasAllele(gAllele) && gAllele.isCalled() )
                         throw new IllegalStateException("Allele in genotype " + gAllele + " not in the variant context " + alleles);
                 }
@@ -1485,9 +1484,10 @@ public class VariantContext implements Feature, Serializable {
 
         boolean sawRef = false;
         for ( final Allele a : alleles ) {
-            for ( final Allele b : alleleList ) {
-                if ( a.equals(b, true) )
+            for (int i = 0, alleleListSize = alleleList.size(); i < alleleListSize; i++) {
+                if (a.equals(alleleList.get(i), true)) {
                     throw new IllegalArgumentException("Duplicate allele added to VariantContext: " + a);
+                }
             }
 
             // deal with the case where the first allele isn't the reference
@@ -1625,7 +1625,7 @@ public class VariantContext implements Feature, Serializable {
                         return b;
                     case String:    return string;
                     case Integer:   return Integer.valueOf(string);
-                    case Float:     return Double.valueOf(string);
+                    case Float:     return VCFUtils.parseVcfDouble(string);
                     default: throw new TribbleException("Unexpected type for field" + field);
                 }
             }
@@ -1659,12 +1659,29 @@ public class VariantContext implements Feature, Serializable {
     }
 
     /**
-     * @return 1-based inclusive start position of the Variant
-     * INDEL events usually start on the first unaltered reference base before the INDEL
-     * 
-     * <strong>Warning:</strong> be aware that the start position of the VariantContext is defined in terms of the start position specified in the
-     * underlying vcf file, VariantContexts representing the same biological event may have different start positions depending on the
-     * specifics of the vcf file they are derived from
+     * Returns 1-based inclusive start position of the variant.
+     *
+     * <p>
+     *     INDEL events usually start on the first unaltered reference base before the INDEL.
+     * </p>
+     *
+     * <p>
+     *     <strong>Warning:</strong>
+     *     be aware that the start position of the VariantContext is defined
+     *     in terms of the start position specified in the underlying vcf file,
+     *     VariantContexts representing the same biological event may have different
+     *     start positions depending on the specifics of the vcf file they are derived from.
+     * </p>
+     *
+     * <p>
+     *     <strong>Warning:</strong>
+     *     Note also that the VCF spec allows 0 and N + 1 for POS field for telomeric event,
+     *     where N is the length of the chromosome.
+     *     The "0" value returned should be interpreted as telomere, and does not violate the above "1-based" comment.
+     *     Code consuming the returned {@code start} should be prepared for such out-of-the-ordinary values.
+     * </p>
+     *
+     * @return 0 or greater.
      */
     @Override
     public int getStart() {
@@ -1682,12 +1699,28 @@ public class VariantContext implements Feature, Serializable {
         return (int)stop;
     }
 
+    /**
+     *
+     * @return true if the variant context is a reference block
+     *
+     */
+    public boolean isReferenceBlock() {
+        return getAlternateAlleles().size() == 1
+                && getAlternateAllele(0).isNonRefAllele()
+                && getAttribute(VCFConstants.END_KEY) != null;
+    }
+
     public boolean hasSymbolicAlleles() {
         return hasSymbolicAlleles(getAlleles());
     }
 
     public static boolean hasSymbolicAlleles( final List<Allele> alleles ) {
-        return alleles.stream().anyMatch(Allele::isSymbolic);
+        for (int i = 0, size = alleles.size(); i < size; i++ ) {
+            if (alleles.get(i).isSymbolic()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public Allele getAltAlleleWithHighestAlleleCount() {
@@ -1722,12 +1755,20 @@ public class VariantContext implements Feature, Serializable {
                 .collect(Collectors.toCollection(() -> new ArrayList<>(alleles.size())));
     }
 
+    /**
+     * @deprecated 7/18 use {@link #getGLIndicesOfAlternateAllele(Allele)} instead
+     */
+    @Deprecated
     public int[] getGLIndecesOfAlternateAllele(Allele targetAllele) {
+       return getGLIndicesOfAlternateAllele(targetAllele);
+    }
+
+    public int[] getGLIndicesOfAlternateAllele(Allele targetAllele) {
         final int index = getAlleleIndex(targetAllele);
         if ( index == -1 ) throw new IllegalArgumentException("Allele " + targetAllele + " not in this VariantContex " + this);
-        return GenotypeLikelihoods.getPLIndecesOfAlleles(0, index);
+        return GenotypeLikelihoods.getPLIndicesOfAlleles(0, index);
     }
-    
+
     /** 
      * Search for the INFO=SVTYPE and return the type of Structural Variant 
      * @return the StructuralVariantType of null if there is no property SVTYPE 

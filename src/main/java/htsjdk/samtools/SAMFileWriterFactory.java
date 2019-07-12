@@ -23,8 +23,10 @@
  */
 package htsjdk.samtools;
 
+import htsjdk.samtools.cram.ref.CRAMReferenceSource;
 import htsjdk.samtools.cram.ref.ReferenceSource;
 import htsjdk.samtools.util.BlockCompressedOutputStream;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.Log;
 import htsjdk.samtools.util.Md5CalculatingOutputStream;
@@ -37,6 +39,7 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.zip.Deflater;
+import static htsjdk.samtools.SamReader.Type.*;
 
 /**
  * Create a writer for writing SAM, BAM, or CRAM files.
@@ -410,7 +413,7 @@ public class SAMFileWriterFactory implements Cloneable {
     }
 
     /**
-     * Create either a SAM or a BAM writer based on examination of the outputFile extension.
+     * Create either a SAM or a BAM writer based on examination of the outputFile extension, defaults to BAM writer.
      *
      * @param header     entire header. Sort order is determined by the sortOrder property of this arg.
      * @param presorted  presorted if true, SAMRecords must be added to the SAMFileWriter in order that agrees with header.sortOrder.
@@ -431,28 +434,46 @@ public class SAMFileWriterFactory implements Cloneable {
      */
     public SAMFileWriter makeSAMOrBAMWriter(final SAMFileHeader header, final boolean presorted, final Path outputPath) {
         final String filename = outputPath.getFileName().toString();
-        if (filename.endsWith(BamFileIoUtils.BAM_FILE_EXTENSION)) {
+        if (SAM_TYPE.hasValidFileExtension(filename)) {
+            return makeSAMWriter(header, presorted, outputPath);
+        } else {
+            if (!BAM_TYPE.hasValidFileExtension(filename)) {
+                log.info("Unknown file extension, assuming BAM format when writing file: " + outputPath.toUri().toString());
+            }
             return makeBAMWriter(header, presorted, outputPath);
         }
-        if (filename.endsWith(".sam")) {
-            return makeSAMWriter(header, presorted, outputPath);
-        }
-        return makeBAMWriter(header, presorted, outputPath);
     }
 
     /**
      *
      * Create a SAM, BAM or CRAM writer based on examination of the outputFile extension.
+     * The method assumes BAM file format for unknown file extensions.
      *
      * @param header header. Sort order is determined by the sortOrder property of this arg.
      * @param presorted if true, SAMRecords must be added to the SAMFileWriter in order that agrees with header.sortOrder.
-     * @param outputFile where to write the output.  Must end with .sam, .bam or .cram.
+     * @param outputFile where to write the output.  Should end with .sam, .bam or .cram.
      * @param referenceFasta reference sequence file
-     * @return SAMFileWriter appropriate for the file type specified in outputFile
+     * @return SAMFileWriter appropriate for SAM and CRAM file types specified in outputFile, or a BAM writer for all other types
      *
      */
     public SAMFileWriter makeWriter(final SAMFileHeader header, final boolean presorted, final File outputFile, final File referenceFasta) {
-        return makeWriter(header, presorted, null == outputFile ? null : outputFile.toPath(), referenceFasta);
+        return makeWriter(header, presorted, IOUtil.toPath( outputFile ), IOUtil.toPath(referenceFasta));
+    }
+
+    /**
+     *
+     * Create a SAM, BAM or CRAM writer based on examination of the outputPath extension.
+     *
+     * @param header header. Sort order is determined by the sortOrder property of this arg.
+     * @param presorted if true, SAMRecords must be added to the SAMFileWriter in order that agrees with header.sortOrder.
+     * @param outputPath where to write the output.  Must end with .sam, .bam or .cram.
+     * @param referenceFasta reference sequence file
+     * @return SAMFileWriter appropriate for the file type specified in outputPath
+     * @deprecated since 6/18, use {@link #makeWriter(SAMFileHeader, boolean, Path, Path)} instead
+     */
+    @Deprecated
+    public SAMFileWriter makeWriter(final SAMFileHeader header, final boolean presorted, final Path outputPath, final File referenceFasta) {
+        return makeWriter(header, presorted, outputPath, IOUtil.toPath( referenceFasta ));
     }
 
     /**
@@ -466,12 +487,12 @@ public class SAMFileWriterFactory implements Cloneable {
      * @return SAMFileWriter appropriate for the file type specified in outputPath
      *
      */
-    public SAMFileWriter makeWriter(final SAMFileHeader header, final boolean presorted, final Path outputPath, final File referenceFasta) {
-        if (null != outputPath && outputPath.toString().endsWith(SamReader.Type.CRAM_TYPE.fileExtension())) {
+    public SAMFileWriter makeWriter(final SAMFileHeader header, final boolean presorted, final Path outputPath, final Path referenceFasta) {
+        final String filename = outputPath.getFileName().toString();
+        if (CRAM_TYPE.hasValidFileExtension(filename)) {
             return makeCRAMWriter(header, presorted, outputPath, referenceFasta);
-        }
-        else {
-            return makeSAMOrBAMWriter(header, presorted, outputPath);
+        } else {
+            return makeSAMOrBAMWriter (header, presorted, outputPath);
         }
     }
 
@@ -487,6 +508,21 @@ public class SAMFileWriterFactory implements Cloneable {
      * @return CRAMFileWriter
      */
     public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final OutputStream stream, final File referenceFasta) {
+        return makeCRAMWriter(header, stream, IOUtil.toPath( referenceFasta ));
+    }
+
+    /**
+     * Create a CRAMFileWriter on an output stream. Requires the input to be presorted to match the sort order defined
+     * by the input header.
+     *
+     * Note: does not honor factory settings for CREATE_MD5, CREATE_INDEX, USE_ASYNC_IO.
+     *
+     * @param header entire header. Sort order is determined by the sortOrder property of this arg.
+     * @param stream where to write the output.
+     * @param referenceFasta reference sequence file
+     * @return CRAMFileWriter
+     */
+    public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final OutputStream stream, final Path referenceFasta) {
         // create the CRAMFileWriter directly without propagating factory settings
         final CRAMFileWriter writer = new CRAMFileWriter(stream, new ReferenceSource(referenceFasta), header, null);
         setCRAMWriterDefaults(writer);
@@ -506,7 +542,7 @@ public class SAMFileWriterFactory implements Cloneable {
      *
      */
     public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final File outputFile, final File referenceFasta) {
-        return createCRAMWriterWithSettings(header, true, outputFile.toPath(), referenceFasta);
+        return createCRAMWriterWithSettings(header, true, outputFile.toPath(), IOUtil.toPath( referenceFasta ));
     }
 
     /**
@@ -520,9 +556,12 @@ public class SAMFileWriterFactory implements Cloneable {
      * @param referenceFasta reference sequence file
      * @return CRAMFileWriter
      *
+     * @deprecated since 6/18, prefer {@link #makeWriter(SAMFileHeader, boolean, Path, Path)} for creating bam/cram writers
+     * however {@link #makeCRAMWriter(SAMFileHeader, boolean, Path, Path)} is the direct replacement for this method
      */
+    @Deprecated
     public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final Path outputPath, final File referenceFasta) {
-        return createCRAMWriterWithSettings(header, true, outputPath, referenceFasta);
+        return makeCRAMWriter(header, true, outputPath, IOUtil.toPath( referenceFasta ));
     }
 
     /**
@@ -538,7 +577,7 @@ public class SAMFileWriterFactory implements Cloneable {
      *
      */
     public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final boolean presorted, final File outputFile, final File referenceFasta) {
-        return makeCRAMWriter(header, presorted, outputFile.toPath(), referenceFasta);
+        return makeCRAMWriter(header, presorted, outputFile.toPath(),  IOUtil.toPath(referenceFasta));
     }
 
 
@@ -553,8 +592,28 @@ public class SAMFileWriterFactory implements Cloneable {
      * @param referenceFasta reference sequence file
      * @return CRAMFileWriter
      *
+     * @deprecated since 6/18, prefer {@link #makeWriter(SAMFileHeader, boolean, Path, Path)} for creating bam/cram writers
+     * however {@link #makeCRAMWriter(SAMFileHeader, boolean, Path, Path)} is the direct replacement for this method
+     *
      */
+    @Deprecated
     public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final boolean presorted, final Path output, final File referenceFasta) {
+        return makeCRAMWriter(header, presorted, output, IOUtil.toPath( referenceFasta ));
+    }
+
+    /**
+     * Create a CRAMFileWriter on an output file.
+     *
+     * Note: does not honor factory setting for USE_ASYNC_IO.
+     *
+     * @param header entire header. Sort order is determined by the sortOrder property of this arg.
+     * @param presorted  if true, SAMRecords must be added to the SAMFileWriter in order that agrees with header.sortOrder.
+     * @param output where to write the output.  Must end with .sam, .bam or .cram.
+     * @param referenceFasta reference sequence file
+     * @return CRAMFileWriter
+     *
+     */
+    public CRAMFileWriter makeCRAMWriter(final SAMFileHeader header, final boolean presorted, final Path output, final Path referenceFasta) {
         return createCRAMWriterWithSettings(header, presorted, output, referenceFasta);
     }
 
@@ -573,18 +632,30 @@ public class SAMFileWriterFactory implements Cloneable {
             final SAMFileHeader header,
             final boolean presorted,
             final Path outputFile,
-            final File referenceFasta) {
+            final Path referenceFasta) {
+
+        final CRAMReferenceSource referenceSource;
+        if (referenceFasta == null) {
+            log.info("Reference fasta is not provided when writing CRAM file " + outputFile.toUri().toString());
+            log.info("Will attempt to use a default reference or download as set by defaults:");
+            log.info("Default REFERENCE_FASTA (-Dsamjdk.reference_fasta): " + Defaults.REFERENCE_FASTA);
+            log.info("Default USE_CRAM_REF_DOWNLOAD (-Dsamjdk.use_cram_ref_download): " + Defaults.USE_CRAM_REF_DOWNLOAD);
+
+            referenceSource = ReferenceSource.getDefaultCRAMReferenceSource();
+        } else {
+            referenceSource = new ReferenceSource(referenceFasta);
+        }
         OutputStream cramOS = null;
-        OutputStream indexOS = null ;
+        OutputStream indexOS = null;
 
         if (createIndex) {
             if (!IOUtil.isRegularPath(outputFile)) {
                 log.warn("Cannot create index for CRAM because output file is not a regular file: " + outputFile.toUri());
-            }
-            else {
-                final Path indexPath = IOUtil.addExtension(outputFile, BAMIndex.BAMIndexSuffix);
+            } else {
+                final Path indexPath = IOUtil.addExtension(outputFile, FileExtensions.BAI_INDEX);
                 try {
-                    indexOS = Files.newOutputStream(indexPath);
+
+                    indexOS = Files.newOutputStream(indexPath) ;
                 }
                 catch (final IOException ioe) {
                     throw new RuntimeIOException("Error creating index file for: " + indexPath.toUri(), ioe);
@@ -594,8 +665,7 @@ public class SAMFileWriterFactory implements Cloneable {
 
         try {
             cramOS = IOUtil.maybeBufferOutputStream(Files.newOutputStream(outputFile), bufferSize);
-        }
-        catch (final IOException ioe) {
+        } catch (final IOException ioe) {
             throw new RuntimeIOException("Error creating CRAM file: " + outputFile.toUri(), ioe);
         }
 
@@ -604,7 +674,7 @@ public class SAMFileWriterFactory implements Cloneable {
                 createMd5File ? new Md5CalculatingOutputStream(cramOS, md5Path) : cramOS,
                 indexOS,
                 presorted,
-                new ReferenceSource(referenceFasta),
+                referenceSource,
                 header,
                 outputFile.toUri().toString());
         setCRAMWriterDefaults(writer);

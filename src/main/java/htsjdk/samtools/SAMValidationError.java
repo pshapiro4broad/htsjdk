@@ -232,7 +232,11 @@ public class SAMValidationError implements Serializable {
         DUPLICATE_SAM_TAG,
 
         /** The CG Tag should only be used in BAM format to hold a large cigar */
-        CG_TAG_FOUND_IN_ATTRIBUTES;
+        CG_TAG_FOUND_IN_ATTRIBUTES,
+
+        /** One or more reference sequences in the dictionary are too long for BAI indexing. */
+        REF_SEQ_TOO_LONG_FOR_BAI(Severity.WARNING);
+
 
         public final Severity severity;
 
@@ -272,10 +276,10 @@ public class SAMValidationError implements Serializable {
 
     /**
      * Construct a SAMValidationError with possibly-known record number.
-     * @param type
-     * @param message
-     * @param readName May be null if readName is not known.
-     * @param recordNumber Position of the record in the SAM file it has been read from.  -1 if not known.
+     * @param type The validation error type
+     * @param message The message explaining the problem
+     * @param readName The read which is the cause of the violation. May be null if readName is not known.
+     * @param recordNumber Position of the record in the SAM file it has been read from. -1 if not known.
      */
     public SAMValidationError(final Type type, final String message, final String readName, final long recordNumber) {
         this(type, message, readName);
@@ -284,9 +288,10 @@ public class SAMValidationError implements Serializable {
 
     public String toString() {
         final StringBuilder builder = new StringBuilder();
-        builder.append(type.severity.toString()).append(": ");
+        builder.append(type.severity.name()).append("::");
+        builder.append(type.name()).append(":");
         if (source != null) {
-            builder.append("File ").append(source.toString()).append(", ");
+            builder.append("File ").append(source).append(", ");
         }
         if (recordNumber > 0) {
             builder.append("Record ").append(recordNumber).append(", ");

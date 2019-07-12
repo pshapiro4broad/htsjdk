@@ -23,15 +23,14 @@
  */
 package htsjdk.samtools.util;
 
-
 import htsjdk.samtools.Defaults;
 import htsjdk.samtools.SAMException;
 import htsjdk.samtools.seekablestream.SeekableBufferedStream;
 import htsjdk.samtools.seekablestream.SeekableFileStream;
 import htsjdk.samtools.seekablestream.SeekableHTTPStream;
 import htsjdk.samtools.seekablestream.SeekableStream;
-import htsjdk.tribble.Tribble;
 import htsjdk.samtools.util.nio.DeleteOnExitPathHook;
+import htsjdk.tribble.Tribble;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -56,17 +55,24 @@ import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.file.FileSystemNotFoundException;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.Stack;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -88,25 +94,76 @@ public class IOUtil {
     public static final long TWO_GBS = 2 * ONE_GB;
     public static final long FIVE_GBS = 5 * ONE_GB;
 
-    public static final String VCF_FILE_EXTENSION = ".vcf";
-    public static final String VCF_INDEX_EXTENSION = Tribble.STANDARD_INDEX_EXTENSION;
-
-    public static final String BCF_FILE_EXTENSION = ".bcf";
-    public static final String COMPRESSED_VCF_FILE_EXTENSION = ".vcf.gz";
-    public static final String COMPRESSED_VCF_INDEX_EXTENSION = ".tbi";
-
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#VCF} instead.
+     */
+    @Deprecated
+    public static final String VCF_FILE_EXTENSION = FileExtensions.VCF;
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#VCF_INDEX} instead.
+     */
+    @Deprecated
+    public static final String VCF_INDEX_EXTENSION = FileExtensions.VCF_INDEX;
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#BCF} instead.
+     */
+    @Deprecated
+    public static final String BCF_FILE_EXTENSION = FileExtensions.BCF;
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#COMPRESSED_VCF} instead.
+     */
+    @Deprecated
+    public static final String COMPRESSED_VCF_FILE_EXTENSION = FileExtensions.COMPRESSED_VCF;
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#COMPRESSED_VCF_INDEX} instead.
+     */
+    @Deprecated
+    public static final String COMPRESSED_VCF_INDEX_EXTENSION = FileExtensions.COMPRESSED_VCF_INDEX;
 
     /** Possible extensions for VCF files and related formats. */
-    public static final String[] VCF_EXTENSIONS = {VCF_FILE_EXTENSION, COMPRESSED_VCF_FILE_EXTENSION, BCF_FILE_EXTENSION};
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#VCF_LIST} instead.
+     */
+    @Deprecated
+    public static final List<String> VCF_EXTENSIONS_LIST = FileExtensions.VCF_LIST;
 
-    public static final String INTERVAL_LIST_FILE_EXTENSION = IntervalList.INTERVAL_LIST_FILE_EXTENSION;
+    /**
+     * Possible extensions for VCF files and related formats.
+     * @deprecated since June 2019 Use {@link FileExtensions#VCF_LIST} instead.
+     */
+    @Deprecated
+    public static final String[] VCF_EXTENSIONS = FileExtensions.VCF_LIST.toArray(new String[0]);
 
-    public static final String SAM_FILE_EXTENSION = ".sam";
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#INTERVAL_LIST} instead.
+     */
+    @Deprecated
+    public static final String INTERVAL_LIST_FILE_EXTENSION = FileExtensions.INTERVAL_LIST;
 
-    public static final String DICT_FILE_EXTENSION = ".dict";
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#SAM} instead.
+     */
+    @Deprecated
+    public static final String SAM_FILE_EXTENSION = FileExtensions.SAM;
+
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#DICT} instead.
+     */
+    @Deprecated
+    public static final String DICT_FILE_EXTENSION = FileExtensions.DICT;
+
+    /**
+     * @deprecated Use since June 2019 {@link FileExtensions#BLOCK_COMPRESSED} instead.
+     */
+    @Deprecated
+    public static final Set<String> BLOCK_COMPRESSED_EXTENSIONS = FileExtensions.BLOCK_COMPRESSED;
+
+    /** number of bytes that will be read for the GZIP-header in the function {@link #isGZIPInputStream(InputStream)} */
+    public static final int GZIP_HEADER_READ_LENGTH = 8000;
+
+    private static final OpenOption[] EMPTY_OPEN_OPTIONS = new OpenOption[0];
 
     private static int compressionLevel = Defaults.COMPRESSION_LEVEL;
-
     /**
      * Sets the GZip compression level for subsequent GZIPOutputStream object creation.
      * @param compressionLevel 0 <= compressionLevel <= 9
@@ -410,7 +467,7 @@ public class IOUtil {
      * @param file the file to check for readability
      */
     public static void assertFileIsReadable(final File file) {
-        assertFileIsReadable(file == null ? null : file.toPath());
+        assertFileIsReadable(toPath(file));
     }
 
     /**
@@ -517,7 +574,7 @@ public class IOUtil {
      * @param dir the dir to check for writability
      */
     public static void assertDirectoryIsWritable(final File dir) {
-        final Path asPath = (dir == null) ? null : dir.toPath();
+        final Path asPath = IOUtil.toPath(dir);
         assertDirectoryIsWritable(asPath);
     }
 
@@ -567,12 +624,13 @@ public class IOUtil {
      * Checks that the two files are the same length, and have the same content, otherwise throws a runtime exception.
      */
     public static void assertFilesEqual(final File f1, final File f2) {
-        try {
-            if (f1.length() != f2.length()) {
-                throw new SAMException("File " + f1 + " is " + f1.length() + " bytes but file " + f2 + " is " + f2.length() + " bytes.");
-            }
+        if (f1.length() != f2.length()) {
+            throw new SAMException("File " + f1 + " is " + f1.length() + " bytes but file " + f2 + " is " + f2.length() + " bytes.");
+        }
+        try (
             final FileInputStream s1 = new FileInputStream(f1);
             final FileInputStream s2 = new FileInputStream(f2);
+            ) {
             final byte[] buf1 = new byte[1024 * 1024];
             final byte[] buf2 = new byte[1024 * 1024];
             int len1;
@@ -585,12 +643,9 @@ public class IOUtil {
                     throw new SAMException("Files " + f1 + " and " + f2 + " differ.");
                 }
             }
-            s1.close();
-            s2.close();
-        } catch (IOException e) {
+        } catch (final IOException e) {
             throw new SAMException("Exception comparing files " + f1 + " and " + f2, e);
         }
-
     }
 
     /**
@@ -609,7 +664,7 @@ public class IOUtil {
      * @return the input stream to read from
      */
     public static InputStream openFileForReading(final File file) {
-        return openFileForReading(file.toPath());
+        return openFileForReading(toPath(file));
     }
 
     /**
@@ -621,8 +676,7 @@ public class IOUtil {
     public static InputStream openFileForReading(final Path path) {
 
         try {
-            if (path.getFileName().toString().endsWith(".gz") ||
-                path.getFileName().toString().endsWith(".bfq"))  {
+            if (hasGzipFileExtension(path))  {
                 return openGzipFileForReading(path);
             }
             else {
@@ -642,7 +696,7 @@ public class IOUtil {
      * @return the input stream to read from
      */
     public static InputStream openGzipFileForReading(final File file) {
-        return openGzipFileForReading(file.toPath());
+        return openGzipFileForReading(toPath(file));
     }
 
     /**
@@ -668,30 +722,46 @@ public class IOUtil {
      * @return the output stream to write to
      */
     public static OutputStream openFileForWriting(final File file) {
-        return openFileForWriting(file, false);
+        return openFileForWriting(toPath(file));
     }
 
     /**
-     * Opens a file for writing
+     * Opens a file for writing, gzip it if it ends with ".gz" or "bfq"
      *
      * @param file  the file to write to
      * @param append    whether to append to the file if it already exists (we overwrite it if false)
      * @return the output stream to write to
      */
     public static OutputStream openFileForWriting(final File file, final boolean append) {
+        return openFileForWriting(toPath(file), getAppendOpenOption(append));
+    }
 
+    /**
+     * Opens a file for writing, gzip it if it ends with ".gz" or "bfq"
+     *
+     * @param path  the file to write to
+     * @param openOptions options to use when opening the file
+     * @return the output stream to write to
+     */
+    public static OutputStream openFileForWriting(final Path path, OpenOption... openOptions) {
         try {
-            if (file.getName().endsWith(".gz") ||
-                file.getName().endsWith(".bfq")) {
-                return openGzipFileForWriting(file, append);
+            if (hasGzipFileExtension(path)) {
+                return openGzipFileForWriting(path, openOptions);
+            } else {
+                return Files.newOutputStream(path, openOptions);
             }
-            else {
-                return new FileOutputStream(file, append);
-            }
+        } catch (final IOException ioe) {
+            throw new SAMException("Error opening file for writing: " + path.toUri().toString(), ioe);
         }
-        catch (IOException ioe) {
-            throw new SAMException("Error opening file for writing: " + file.getName(), ioe);
-        }
+    }
+
+    /**
+     * check if the file name ends with .gz, .gzip, or .bfq
+     */
+    public static boolean hasGzipFileExtension(Path path) {
+        final List<String> gzippedEndings = Arrays.asList(".gz", ".gzip", ".bfq");
+        final String fileName = path.getFileName().toString();
+        return gzippedEndings.stream().anyMatch(fileName::endsWith);
     }
 
     /**
@@ -704,16 +774,29 @@ public class IOUtil {
     /**
      * Preferred over PrintStream and PrintWriter because an exception is thrown on I/O error
      */
+    public static BufferedWriter openFileForBufferedWriting(final Path path, final OpenOption ... openOptions) {
+        return new BufferedWriter(new OutputStreamWriter(openFileForWriting(path, openOptions)), Defaults.NON_ZERO_BUFFER_SIZE);
+    }
+
+    /**
+     * Preferred over PrintStream and PrintWriter because an exception is thrown on I/O error
+     */
     public static BufferedWriter openFileForBufferedWriting(final File file) {
-        return openFileForBufferedWriting(file, false);
+        return openFileForBufferedWriting(IOUtil.toPath(file));
     }
 
     /**
      * Preferred over PrintStream and PrintWriter because an exception is thrown on I/O error
      */
     public static BufferedWriter openFileForBufferedUtf8Writing(final File file) {
-        return new BufferedWriter(new OutputStreamWriter(openFileForWriting(file), Charset.forName("UTF-8")),
-                Defaults.NON_ZERO_BUFFER_SIZE);
+        return openFileForBufferedUtf8Writing(IOUtil.toPath(file));
+    }
+
+    /**
+     * Preferred over PrintStream and PrintWriter because an exception is thrown on I/O error
+     */
+    public static BufferedWriter openFileForBufferedUtf8Writing(final Path path) {
+        return new BufferedWriter(new OutputStreamWriter(openFileForWriting(path), Charset.forName("UTF-8")), Defaults.NON_ZERO_BUFFER_SIZE);
     }
 
     /**
@@ -734,23 +817,42 @@ public class IOUtil {
      * @return the output stream to write to
      */
     public static OutputStream openGzipFileForWriting(final File file, final boolean append) {
+        return openGzipFileForWriting(IOUtil.toPath(file), getAppendOpenOption(append));
+    }
 
+    /**
+     * converts a boolean into an array containing either the append option or nothing
+     */
+    private static OpenOption[] getAppendOpenOption(boolean append) {
+        return append ? new OpenOption[]{StandardOpenOption.APPEND} : EMPTY_OPEN_OPTIONS;
+    }
+
+    /**
+     * Opens a GZIP encoded file for writing
+     *
+     * @param path the file to write to
+     * @param openOptions options to control how the file is opened
+     * @return the output stream to write to
+     */
+    public static OutputStream openGzipFileForWriting(final Path path, final OpenOption ... openOptions) {
         try {
+            final OutputStream out = Files.newOutputStream(path, openOptions);
             if (Defaults.BUFFER_SIZE > 0) {
-            return new CustomGzipOutputStream(new FileOutputStream(file, append),
-                                              Defaults.BUFFER_SIZE,
-                                              compressionLevel);
+                return new CustomGzipOutputStream(out, Defaults.BUFFER_SIZE, compressionLevel);
             } else {
-                return new CustomGzipOutputStream(new FileOutputStream(file, append), compressionLevel);
+                return new CustomGzipOutputStream(out, compressionLevel);
             }
-        }
-        catch (IOException ioe) {
-            throw new SAMException("Error opening file for writing: " + file.getName(), ioe);
+        } catch (final IOException ioe) {
+            throw new SAMException("Error opening file for writing: " + path.toUri().toString(), ioe);
         }
     }
 
     public static OutputStream openFileForMd5CalculatingWriting(final File file) {
-        return new Md5CalculatingOutputStream(IOUtil.openFileForWriting(file), new File(file.getAbsolutePath() + ".md5"));
+        return openFileForMd5CalculatingWriting(toPath(file));
+    }
+
+    public static OutputStream openFileForMd5CalculatingWriting(final Path file) {
+        return new Md5CalculatingOutputStream(IOUtil.openFileForWriting(file), file.resolve(".md5"));
     }
 
     /**
@@ -882,7 +984,7 @@ public class IOUtil {
 
     /** Checks that a file exists and is readable, and then returns a buffered reader for it. */
     public static BufferedReader openFileForBufferedReading(final File file) {
-        return openFileForBufferedReading(file.toPath());
+        return openFileForBufferedReading(toPath(file));
     }
 
     /** Checks that a path exists and is readable, and then returns a buffered reader for it. */
@@ -1027,7 +1129,7 @@ public class IOUtil {
      */
     public static List<File> unrollFiles(final Collection<File> inputs, final String... extensions) {
         Collection<Path> paths = unrollPaths(filesToPaths(inputs), extensions);
-        return paths.stream().map(p->p.toFile()).collect(Collectors.toList());
+        return paths.stream().map(Path::toFile).collect(Collectors.toList());
     }
 
     /**
@@ -1055,8 +1157,6 @@ public class IOUtil {
 
             // If the file didn't match a given extension, treat it as a list of files
             if (!matched) {
-                IOUtil.assertFileIsReadable(p);
-
                 try {
                     Files.lines(p)
                             .map(String::trim)
@@ -1067,16 +1167,16 @@ public class IOUtil {
                                             innerPath = getPath(s);
                                             stack.push(innerPath);
                                         } catch (IOException e) {
-                                            throw new IllegalArgumentException("cannot convert " + s + " to a Path.");
+                                            throw new IllegalArgumentException("cannot convert " + s + " to a Path.", e);
                                         }
                                     }
                             );
 
                 } catch (IOException e) {
-                    throw new IllegalArgumentException("had trouble reading from " + p.toUri().toString());
+                    throw new IllegalArgumentException("had trouble reading from " + p.toUri().toString(), e);
                 }
             }
-    }
+        }
 
         // Preserve input order (since we're using a stack above) for things that care
         Collections.reverse(output);
@@ -1133,6 +1233,16 @@ public class IOUtil {
         }).collect(Collectors.toList());
     }
 
+    /*
+     * Converts the File to a Path, preserving nullness.
+     *
+     * @param fileOrNull a File, or null
+     * @return           the corresponding Path (or null)
+     */
+    public static Path toPath(File fileOrNull) {
+        return (null == fileOrNull ? null : fileOrNull.toPath());
+    }
+
     /** Takes a list of Files and converts them to a list of Paths
      * Runs .toPath() on the contents of the input.
      *
@@ -1144,6 +1254,34 @@ public class IOUtil {
     }
 
     /**
+     * Test whether a input stream looks like a GZIP input.
+     * This identifies both gzip and bgzip streams as being GZIP.
+     * @param stream the input stream.
+     * @return true if `stream` starts with a gzip signature.
+     * @throws IllegalArgumentException if `stream` cannot mark or reset the stream
+     */
+    public static boolean isGZIPInputStream(final InputStream stream) {
+        if (!stream.markSupported()) {
+            throw new IllegalArgumentException("isGZIPInputStream() : Cannot test a stream that doesn't support marking.");
+        }
+        stream.mark(GZIP_HEADER_READ_LENGTH);
+
+        try {
+            final GZIPInputStream gunzip = new GZIPInputStream(stream);
+            final int ch = gunzip.read();
+            return true;
+        } catch (final IOException ioe) {
+            return false;
+        } finally {
+            try {
+                stream.reset();
+            } catch (final IOException ioe) {
+                throw new IllegalStateException("isGZIPInputStream(): Could not reset stream.");
+            }
+        }
+    }
+
+    /**
      * Adds the extension to the given path.
      *
      * @param path       the path to start from, eg. "/folder/file.jpg"
@@ -1152,5 +1290,136 @@ public class IOUtil {
      */
     public static Path addExtension(Path path, String extension) {
         return path.resolveSibling(path.getFileName() + extension);
+    }
+
+    /**
+     * Checks if the provided path is block-compressed.
+     *
+     * <p>Note that using {@code checkExtension=true} would avoid the cost of opening the file, but
+     * if {@link #hasBlockCompressedExtension(String)} returns {@code false} this would not detect
+     * block-compressed files such BAM.
+     *
+     * @param path file to check if it is block-compressed.
+     * @param checkExtension if {@code true}, checks the extension before opening the file.
+     * @return {@code true} if the file is block-compressed; {@code false} otherwise.
+     * @throws IOException if there is an I/O error.
+     */
+    public static boolean isBlockCompressed(final Path path, final boolean checkExtension) throws IOException {
+        if (checkExtension && !hasBlockCompressedExtension(path)) {
+            return false;
+        }
+        try (final InputStream stream = new BufferedInputStream(Files.newInputStream(path), Math.max(Defaults.BUFFER_SIZE, BlockCompressedStreamConstants.MAX_COMPRESSED_BLOCK_SIZE))) {
+            return BlockCompressedInputStream.isValidFile(stream);
+        }
+    }
+
+    /**
+     * Checks if the provided path is block-compressed (including extension).
+     *
+     * <p>Note that block-compressed file extensions {@link FileExtensions#BLOCK_COMPRESSED} are not
+     * checked by this method.
+     *
+     * @param path file to check if it is block-compressed.
+     * @return {@code true} if the file is block-compressed; {@code false} otherwise.
+     * @throws IOException if there is an I/O error.
+     */
+    public static boolean isBlockCompressed(final Path path) throws IOException {
+        return isBlockCompressed(path, false);
+    }
+
+    /**
+     * Checks if a file ends in one of the {@link FileExtensions#BLOCK_COMPRESSED}.
+     *
+     * @param fileName string name for the file. May be an HTTP/S url.
+     *
+     * @return {@code true} if the file has a block-compressed extension; {@code false} otherwise.
+     */
+    public static boolean hasBlockCompressedExtension (final String fileName) {
+        String cleanedPath = stripQueryStringIfPathIsAnHttpUrl(fileName);
+        for (final String extension : FileExtensions.BLOCK_COMPRESSED) {
+            if (cleanedPath.toLowerCase().endsWith(extension))
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * Checks if a path ends in one of the {@link FileExtensions#BLOCK_COMPRESSED}.
+     *
+     * @param path object to extract the name from.
+     *
+     * @return {@code true} if the path has a block-compressed extension; {@code false} otherwise.
+     */
+    public static boolean hasBlockCompressedExtension(final Path path) {
+        return hasBlockCompressedExtension(path.getFileName().toString());
+    }
+
+    /**
+     * Checks if a file ends in one of the {@link FileExtensions#BLOCK_COMPRESSED}.
+     *
+     * @param file object to extract the name from.
+     *
+     * @return {@code true} if the file has a block-compressed extension; {@code false} otherwise.
+     */
+    public static boolean hasBlockCompressedExtension (final File file) {
+        return hasBlockCompressedExtension(file.getName());
+    }
+
+    /**
+     * Checks if a file ends in one of the {@link FileExtensions#BLOCK_COMPRESSED}.
+     *
+     * @param uri file as an URI.
+     *
+     * @return {@code true} if the file has a block-compressed extension; {@code false} otherwise.
+     */
+    public static boolean hasBlockCompressedExtension (final URI uri) {
+        String path = uri.getPath();
+        return hasBlockCompressedExtension(path);
+    }
+
+    /**
+     * Remove http query before checking extension
+     * Path might be a local file, in which case a '?' is a legal part of the filename.
+     * @param path a string representing some sort of path, potentially an http url
+     * @return path with no trailing queryString (ex: http://something.com/path.vcf?stuff=something => http://something.com/path.vcf)
+     */
+    private static String stripQueryStringIfPathIsAnHttpUrl(String path) {
+        if(path.startsWith("http://") || path.startsWith("https://")) {
+            int qIdx = path.indexOf('?');
+            if (qIdx > 0) {
+                return path.substring(0, qIdx);
+            }
+        }
+        return path;
+    }
+
+    /**
+     * Delete a directory and all files in it.
+     *
+     * @param directory The directory to be deleted (along with its subdirectories)
+     */
+    public static void recursiveDelete(final Path directory) {
+        
+        final SimpleFileVisitor<Path> simpleFileVisitor = new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                super.visitFile(file, attrs);
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                super.postVisitDirectory(dir, exc);
+                Files.deleteIfExists(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        };
+
+        try {
+            Files.walkFileTree(directory, simpleFileVisitor);
+        } catch (final IOException e){
+            throw new RuntimeIOException(e);
+        }
     }
 }

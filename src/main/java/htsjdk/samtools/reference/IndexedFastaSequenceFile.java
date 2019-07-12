@@ -25,6 +25,9 @@
 package htsjdk.samtools.reference;
 
 import htsjdk.samtools.SAMException;
+import htsjdk.samtools.SAMSequenceDictionary;
+import htsjdk.samtools.seekablestream.ReadableSeekableStreamByteChannel;
+import htsjdk.samtools.seekablestream.SeekableStream;
 import htsjdk.samtools.util.BlockCompressedInputStream;
 import htsjdk.samtools.util.IOUtil;
 
@@ -56,7 +59,7 @@ public class IndexedFastaSequenceFile extends AbstractIndexedFastaSequenceFile {
      * @throws FileNotFoundException If the fasta or any of its supporting files cannot be found.
      */
     public IndexedFastaSequenceFile(final File file, final FastaSequenceIndex index) {
-        this(file == null ? null : file.toPath(), index);
+        this(IOUtil.toPath(file), index);
     }
 
     /**
@@ -65,7 +68,7 @@ public class IndexedFastaSequenceFile extends AbstractIndexedFastaSequenceFile {
      * @throws FileNotFoundException If the fasta or any of its supporting files cannot be found.
      */
     public IndexedFastaSequenceFile(final File file) throws FileNotFoundException {
-        this(file, new FastaSequenceIndex((findRequiredFastaIndexFile(file == null ? null : file.toPath()))));
+        this(file, new FastaSequenceIndex((findRequiredFastaIndexFile(IOUtil.toPath(file)))));
     }
 
     /**
@@ -75,9 +78,9 @@ public class IndexedFastaSequenceFile extends AbstractIndexedFastaSequenceFile {
      */
     public IndexedFastaSequenceFile(final Path path, final FastaSequenceIndex index) {
         super(path, index);
-        try (final InputStream stream = IOUtil.maybeBufferInputStream(Files.newInputStream(path))) {
+        try {
             // check if the it is a valid block-compressed file
-            if (BlockCompressedInputStream.isValidFile(stream)) {
+            if (IOUtil.isBlockCompressed(path, true)) {
                 throw new SAMException("Indexed block-compressed FASTA file cannot be handled: " + path);
             }
             this.channel = Files.newByteChannel(path);
@@ -96,6 +99,18 @@ public class IndexedFastaSequenceFile extends AbstractIndexedFastaSequenceFile {
     }
 
     /**
+     * Initialise the given indexed fasta sequence file stream.
+     * @param source The named source of the reference file (used in error messages).
+     * @param in The input stream to read the fasta file from.
+     * @param index The fasta index.
+     * @param dictionary The sequence dictionary, or null if there isn't one.
+     */
+    public IndexedFastaSequenceFile(String source, final SeekableStream in, final FastaSequenceIndex index, SAMSequenceDictionary dictionary) {
+        super(source, index, dictionary);
+        this.channel = new ReadableSeekableStreamByteChannel(in);
+    }
+
+    /**
      * @deprecated use {@link ReferenceSequenceFileFactory#canCreateIndexedFastaReader(Path)} instead.
      */
     @Deprecated
@@ -108,8 +123,8 @@ public class IndexedFastaSequenceFile extends AbstractIndexedFastaSequenceFile {
      */
     @Deprecated
     public static boolean canCreateIndexedFastaReader(final Path fastaFile) {
-        try (final InputStream stream = new BufferedInputStream(Files.newInputStream(fastaFile))) {
-            if (BlockCompressedInputStream.isValidFile(stream)) {
+        try {
+            if (IOUtil.isBlockCompressed(fastaFile, true)) {
                 return false;
             }
             return (Files.exists(fastaFile) &&

@@ -26,6 +26,7 @@
 package htsjdk.variant.vcf;
 
 import htsjdk.samtools.util.CloseableIterator;
+import htsjdk.samtools.util.FileExtensions;
 import htsjdk.samtools.util.IOUtil;
 import htsjdk.samtools.util.TestUtil;
 import htsjdk.tribble.TribbleException;
@@ -46,9 +47,12 @@ import org.testng.annotations.Test;
 
 import java.io.*;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Created by IntelliJ IDEA.
@@ -173,10 +177,15 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertTrue(header.getMetaDataInInputOrder().contains(infoLine), "TestInfoLine not found in set of all header lines");
         Assert.assertNotNull(header.getInfoHeaderLine("TestInfoLine"), "Lookup for TestInfoLine by key failed");
 
-        Assert.assertFalse(header.getFormatHeaderLines().contains(infoLine), "TestInfoLine present in format header lines");
-        Assert.assertFalse(header.getFilterLines().contains(infoLine), "TestInfoLine present in filter header lines");
-        Assert.assertFalse(header.getContigLines().contains(infoLine), "TestInfoLine present in contig header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFormatHeaderLines()).contains(infoLine), "TestInfoLine present in format header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFilterLines()).contains(infoLine), "TestInfoLine present in filter header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getContigLines()).contains(infoLine), "TestInfoLine present in contig header lines");
         Assert.assertFalse(header.getOtherHeaderLines().contains(infoLine), "TestInfoLine present in other header lines");
+    }
+
+    private static <T extends VCFHeaderLine> Collection<VCFHeaderLine> asCollectionOfVCFHeaderLine(Collection<T> headers) {
+        // create a collection of VCFHeaderLine so that contains tests work correctly
+        return headers.stream().map(h -> (VCFHeaderLine) h).collect(Collectors.toList());
     }
 
     @Test
@@ -189,9 +198,9 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertTrue(header.getMetaDataInInputOrder().contains(formatLine), "TestFormatLine not found in set of all header lines");
         Assert.assertNotNull(header.getFormatHeaderLine("TestFormatLine"), "Lookup for TestFormatLine by key failed");
 
-        Assert.assertFalse(header.getInfoHeaderLines().contains(formatLine), "TestFormatLine present in info header lines");
-        Assert.assertFalse(header.getFilterLines().contains(formatLine), "TestFormatLine present in filter header lines");
-        Assert.assertFalse(header.getContigLines().contains(formatLine), "TestFormatLine present in contig header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getInfoHeaderLines()).contains(formatLine), "TestFormatLine present in info header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFilterLines()).contains(formatLine), "TestFormatLine present in filter header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getContigLines()).contains(formatLine), "TestFormatLine present in contig header lines");
         Assert.assertFalse(header.getOtherHeaderLines().contains(formatLine), "TestFormatLine present in other header lines");
     }
 
@@ -207,9 +216,9 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertTrue(header.getMetaDataInInputOrder().contains(filterLine), "TestFilterLine not found in set of all header lines");
         Assert.assertNotNull(header.getFilterHeaderLine("TestFilterLine"), "Lookup for TestFilterLine by key failed");
 
-        Assert.assertFalse(header.getInfoHeaderLines().contains(filterLine), "TestFilterLine present in info header lines");
-        Assert.assertFalse(header.getFormatHeaderLines().contains(filterLine), "TestFilterLine present in format header lines");
-        Assert.assertFalse(header.getContigLines().contains(filterLine), "TestFilterLine present in contig header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getInfoHeaderLines()).contains(filterLine), "TestFilterLine present in info header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFormatHeaderLines()).contains(filterLine), "TestFilterLine present in format header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getContigLines()).contains(filterLine), "TestFilterLine present in contig header lines");
         Assert.assertFalse(header.getOtherHeaderLines().contains(filterLine), "TestFilterLine present in other header lines");
     }
 
@@ -223,9 +232,9 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertTrue(header.getContigLines().contains(contigLine), "Test contig line not found in contig header lines");
         Assert.assertTrue(header.getMetaDataInInputOrder().contains(contigLine), "Test contig line not found in set of all header lines");
 
-        Assert.assertFalse(header.getInfoHeaderLines().contains(contigLine), "Test contig line present in info header lines");
-        Assert.assertFalse(header.getFormatHeaderLines().contains(contigLine), "Test contig line present in format header lines");
-        Assert.assertFalse(header.getFilterLines().contains(contigLine), "Test contig line present in filter header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getInfoHeaderLines()).contains(contigLine), "Test contig line present in info header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFormatHeaderLines()).contains(contigLine), "Test contig line present in format header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFilterLines()).contains(contigLine), "Test contig line present in filter header lines");
         Assert.assertFalse(header.getOtherHeaderLines().contains(contigLine), "Test contig line present in other header lines");
     }
 
@@ -260,6 +269,16 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
     }
 
     @Test
+    public void testVCFSimpleHeaderLineGenericFieldGetter() {
+        VCFHeader header = createHeader(VCF4headerStrings);
+        List<VCFFilterHeaderLine> filters = header.getFilterLines();
+        VCFFilterHeaderLine filterHeaderLine = filters.get(0);
+        Map<String,String> genericFields = filterHeaderLine.getGenericFields();
+        Assert.assertEquals(genericFields.get("ID"),"NoQCALL");
+        Assert.assertEquals(genericFields.get("Description"),"Variant called by Dindel but not confirmed by QCALL");
+    }
+
+    @Test
     public void testVCFHeaderAddOtherLine() {
         final VCFHeader header = getHiSeqVCFHeader();
         final VCFHeaderLine otherLine = new VCFHeaderLine("TestOtherLine", "val");
@@ -269,10 +288,10 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertTrue(header.getMetaDataInInputOrder().contains(otherLine), "TestOtherLine not found in set of all header lines");
         Assert.assertNotNull(header.getOtherHeaderLine("TestOtherLine"), "Lookup for TestOtherLine by key failed");
 
-        Assert.assertFalse(header.getInfoHeaderLines().contains(otherLine), "TestOtherLine present in info header lines");
-        Assert.assertFalse(header.getFormatHeaderLines().contains(otherLine), "TestOtherLine present in format header lines");
-        Assert.assertFalse(header.getContigLines().contains(otherLine), "TestOtherLine present in contig header lines");
-        Assert.assertFalse(header.getFilterLines().contains(otherLine), "TestOtherLine present in filter header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getInfoHeaderLines()).contains(otherLine), "TestOtherLine present in info header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFormatHeaderLines()).contains(otherLine), "TestOtherLine present in format header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getContigLines()).contains(otherLine), "TestOtherLine present in contig header lines");
+        Assert.assertFalse(asCollectionOfVCFHeaderLine(header.getFilterLines()).contains(otherLine), "TestOtherLine present in filter header lines");
     }
 
     @Test
@@ -331,6 +350,51 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
 
         // assert that we have the same number of other header lines before and after
         Assert.assertEquals(numHeaderLinesBefore, numHeaderLinesAfter);
+    }
+
+    @DataProvider(name="validHeaderVersionTransitions")
+    public Object[][] validHeaderVersionTransitions() {
+        // v4.3 can never transition, all other version transitions are allowed
+        return new Object[][] {
+                {VCFHeaderVersion.VCF4_0, VCFHeaderVersion.VCF4_0},
+                {VCFHeaderVersion.VCF4_0, VCFHeaderVersion.VCF4_1},
+                {VCFHeaderVersion.VCF4_0, VCFHeaderVersion.VCF4_2},
+                {VCFHeaderVersion.VCF4_1, VCFHeaderVersion.VCF4_1},
+                {VCFHeaderVersion.VCF4_1, VCFHeaderVersion.VCF4_2},
+                {VCFHeaderVersion.VCF4_2, VCFHeaderVersion.VCF4_2},
+                {VCFHeaderVersion.VCF4_3, VCFHeaderVersion.VCF4_3}
+        };
+    }
+
+    @DataProvider(name="invalidHeaderVersionTransitions")
+    public Object[][] invalidHeaderVersionTransitions() {
+        // v4.3 can never transition with, all other version transitions are allowed
+        return new Object[][] {
+                {VCFHeaderVersion.VCF4_3, VCFHeaderVersion.VCF4_0},
+                {VCFHeaderVersion.VCF4_3, VCFHeaderVersion.VCF4_1},
+                {VCFHeaderVersion.VCF4_3, VCFHeaderVersion.VCF4_2},
+                {VCFHeaderVersion.VCF4_0, VCFHeaderVersion.VCF4_3},
+                {VCFHeaderVersion.VCF4_1, VCFHeaderVersion.VCF4_3},
+                {VCFHeaderVersion.VCF4_2, VCFHeaderVersion.VCF4_3},
+        };
+    }
+
+    @Test(dataProvider="validHeaderVersionTransitions")
+    public void testValidHeaderVersionTransition(final VCFHeaderVersion fromVersion, final VCFHeaderVersion toVersion) {
+        doHeaderTransition(fromVersion, toVersion);
+    }
+
+    @Test(dataProvider="invalidHeaderVersionTransitions", expectedExceptions = TribbleException.class)
+    public void testInvalidHeaderVersionTransition(final VCFHeaderVersion fromVersion, final VCFHeaderVersion toVersion) {
+        doHeaderTransition(fromVersion, toVersion);
+    }
+
+    private void doHeaderTransition(final VCFHeaderVersion fromVersion, final VCFHeaderVersion toVersion) {
+        final VCFHeader vcfHeader =
+                fromVersion == null ?
+                        new VCFHeader() :
+                        new VCFHeader(fromVersion, Collections.EMPTY_SET, Collections.EMPTY_SET);
+        vcfHeader.setVCFHeaderVersion(toVersion);
     }
 
     @Test
@@ -395,7 +459,7 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertEquals(originalEscapingNonQuoteOrBackslashInfoLine.getDescription(), "This other value has a \\n newline in it");
 
         // write the file out into a new copy
-        final File firstCopyVCFFile = File.createTempFile("testEscapeHeaderQuotes1.", IOUtil.VCF_FILE_EXTENSION);
+        final File firstCopyVCFFile = File.createTempFile("testEscapeHeaderQuotes1.", FileExtensions.VCF);
         firstCopyVCFFile.deleteOnExit();
 
         final VariantContextWriter firstCopyWriter = new VariantContextWriterBuilder()
@@ -439,7 +503,7 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
 
 
         // write one more copy to make sure things don't get double escaped
-        final File secondCopyVCFFile = File.createTempFile("testEscapeHeaderQuotes2.", IOUtil.VCF_FILE_EXTENSION);
+        final File secondCopyVCFFile = File.createTempFile("testEscapeHeaderQuotes2.", FileExtensions.VCF);
         secondCopyVCFFile.deleteOnExit();
         final VariantContextWriter secondCopyWriter = new VariantContextWriterBuilder()
                 .setOutputFile(secondCopyVCFFile)
@@ -492,6 +556,38 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         secondCopyReader.close();
 
     }
+
+    @Test
+    public void testVcf42Roundtrip() throws Exception {
+        // this test ensures that source/version fields are round-tripped properly
+
+        // read an existing VCF
+        File expectedFile = new File("src/test/resources/htsjdk/variant/Vcf4.2WithSourceVersionInfoFields.vcf");
+
+        // write the file out into a new copy
+        final File actualFile = File.createTempFile("testVcf4.2roundtrip.", FileExtensions.VCF);
+        actualFile.deleteOnExit();
+
+        try (final VCFFileReader originalFileReader = new VCFFileReader(expectedFile, false);
+             final VariantContextWriter copyWriter = new VariantContextWriterBuilder()
+                     .setOutputFile(actualFile)
+                     .setReferenceDictionary(createArtificialSequenceDictionary())
+                     .setOptions(EnumSet.of(Options.ALLOW_MISSING_FIELDS_IN_HEADER, Options.INDEX_ON_THE_FLY))
+                     .build()
+        ) {
+            final VCFHeader originalHeader = originalFileReader.getFileHeader();
+            
+            copyWriter.writeHeader(originalHeader);
+            for (final VariantContext variantContext : originalFileReader) {
+                copyWriter.add(variantContext);
+            }
+        }
+
+        final String actualContents = new String(Files.readAllBytes(actualFile.toPath()), StandardCharsets.UTF_8);
+        final String expectedContents = new String(Files.readAllBytes(expectedFile.toPath()), StandardCharsets.UTF_8);
+        Assert.assertEquals(actualContents, expectedContents);
+    }
+
 
     /**
      * a little utility function for all tests to md5sum a file
@@ -552,9 +648,9 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
         Assert.assertEquals(md5SumFile(myTempFile), md5sum);
     }
 
-    public static int VCF4headerStringCount = 16;
+    public static final int VCF4headerStringCount = 16;
 
-    public static String VCF4headerStrings =
+    public static final String VCF4headerStrings =
             "##fileformat=VCFv4.2\n" +
                     "##filedate=2010-06-21\n" +
                     "##reference=NCBI36\n" +
@@ -574,7 +670,7 @@ public class VCFHeaderUnitTest extends VariantBaseTest {
                     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
 
 
-    public static String VCF4headerStrings_with_negativeOne =
+    public static final String VCF4headerStrings_with_negativeOne =
             "##fileformat=VCFv4.2\n" +
                     "##filedate=2010-06-21\n" +
                     "##reference=NCBI36\n" +

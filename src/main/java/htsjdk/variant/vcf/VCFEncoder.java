@@ -25,7 +25,7 @@ import java.util.TreeMap;
 public class VCFEncoder {
 
     /**
-     * The encoding used for VCF files: ISO-8859-1
+     * The encoding used for VCF files: ISO-8859-1. When writing VCF4.3 is implemented, this should change to UTF-8.
      */
     public static final Charset VCF_CHARSET = Charset.forName("ISO-8859-1");
     private static final String QUAL_FORMAT_STRING = "%.2f";
@@ -338,23 +338,6 @@ public class VCFEncoder {
                             }
                         } else {
                             Object val = g.hasExtendedAttribute(field) ? g.getExtendedAttribute(field) : VCFConstants.MISSING_VALUE_v4;
-
-                            final VCFFormatHeaderLine metaData = this.header.getFormatHeaderLine(field);
-                            if (metaData != null) {
-                                final int numInFormatField = metaData.getCount(vc);
-                                if (numInFormatField > 1 && val.equals(VCFConstants.MISSING_VALUE_v4)) {
-                                    // If we have a missing field but multiple values are expected, we need to construct a new string with all fields.
-                                    // For example, if Number=2, the string has to be ".,."
-                                    final StringBuilder sb = new StringBuilder(VCFConstants.MISSING_VALUE_v4);
-                                    for (int i = 1; i < numInFormatField; i++) {
-                                        sb.append(',');
-                                        sb.append(VCFConstants.MISSING_VALUE_v4);
-                                    }
-                                    val = sb.toString();
-                                }
-                            }
-
-                            // assume that if key is absent, then the given string encoding suffices
                             outputValue = formatVCFField(val);
                         }
                     }

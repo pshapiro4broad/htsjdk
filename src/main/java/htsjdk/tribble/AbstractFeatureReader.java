@@ -18,6 +18,8 @@
 
 package htsjdk.tribble;
 
+import htsjdk.samtools.util.FileExtensions;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.index.Index;
 import htsjdk.tribble.util.ParsingUtils;
 import htsjdk.tribble.util.TabixUtils;
@@ -42,8 +44,11 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
     // the logging destination for this source
     //private final static Logger log = Logger.getLogger("BasicFeatureSource");
 
-    // the path to underlying data source
+    /**
+     * The path to underlying data file, this must be the input path converted with {@link FeatureCodec#getPathToDataFile(String)}
+     */
     String path;
+
 
     // a wrapper to apply to the raw stream of the Feature file to allow features like prefetching and caching to be injected
     final Function<SeekableByteChannel, SeekableByteChannel> wrapper;
@@ -57,7 +62,9 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
 
     private static ComponentMethods methods = new ComponentMethods();
 
-    public static final Set<String> BLOCK_COMPRESSED_EXTENSIONS = Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(".gz", ".gzip", ".bgz", ".bgzf")));
+    /** @deprecated since June 2019 use {@link FileExtensions#BLOCK_COMPRESSED} instead. */
+    @Deprecated
+    public static final Set<String> BLOCK_COMPRESSED_EXTENSIONS = FileExtensions.BLOCK_COMPRESSED;
 
     /**
      * Calls {@link #getFeatureReader(String, FeatureCodec, boolean)} with {@code requireIndex} = true
@@ -99,8 +106,12 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
      */
     public static <FEATURE extends Feature, SOURCE> AbstractFeatureReader<FEATURE, SOURCE> getFeatureReader(final String featureResource, String indexResource, final FeatureCodec<FEATURE, SOURCE> codec, final boolean requireIndex, Function<SeekableByteChannel, SeekableByteChannel> wrapper, Function<SeekableByteChannel, SeekableByteChannel> indexWrapper) throws TribbleException {
         try {
-            // Test for tabix index
-            if (methods.isTabix(featureResource, indexResource)) {
+
+            // Test for tabix index.
+            // Note that we use pathToDataFile here when determining the file type, but featureResource when constructing the readers.
+            // This is because the reader's constructor will convert the path and it needs to be converted exactly once.
+            final String pathToDataFile = codec.getPathToDataFile(featureResource);
+            if (methods.isTabix(pathToDataFile, indexResource)) {
                 if ( ! (codec instanceof AsciiFeatureCodec) )
                     throw new TribbleException("Tabix indexed files only work with ASCII codecs, but received non-Ascii codec " + codec.getClass().getSimpleName());
                 return new TabixFeatureReader<>(featureResource, indexResource, (AsciiFeatureCodec) codec, wrapper, indexWrapper);
@@ -142,7 +153,7 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
     protected AbstractFeatureReader(final String path, final FeatureCodec<T, SOURCE> codec,
                                     final Function<SeekableByteChannel, SeekableByteChannel> wrapper,
                                     final Function<SeekableByteChannel, SeekableByteChannel> indexWrapper) {
-        this.path = path;
+        this.path = codec.getPathToDataFile(path);
         this.codec = codec;
         this.wrapper = wrapper;
         this.indexWrapper = indexWrapper;
@@ -170,52 +181,28 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
     }
 
     /**
-     * Whether a filename ends in one of the BLOCK_COMPRESSED_EXTENSIONS
-     * @param fileName
-     * @return
+     * @deprecated use {@link IOUtil#hasBlockCompressedExtension(String)}.
      */
+    @Deprecated
     public static boolean hasBlockCompressedExtension (final String fileName) {
-        String cleanedPath = stripQueryStringIfPathIsAnHttpUrl(fileName);
-        for (final String extension : BLOCK_COMPRESSED_EXTENSIONS) {
-            if (cleanedPath.toLowerCase().endsWith(extension))
-                return true;
-        }
-        return false;
+        return IOUtil.hasBlockCompressedExtension(fileName);
     }
 
     /**
-     * Remove http query before checking extension
-     * Path might be a local file, in which case a '?' is a legal part of the filename.
-     * @param path a string representing some sort of path, potentially an http url
-     * @return path with no trailing queryString (ex: http://something.com/path.vcf?stuff=something => http://something.com/path.vcf)
+     * @deprecated use {@link IOUtil#hasBlockCompressedExtension(File)}.
      */
-    private static String stripQueryStringIfPathIsAnHttpUrl(String path) {
-        if(path.startsWith("http://") || path.startsWith("https://")) {
-            int qIdx = path.indexOf('?');
-            if (qIdx > 0) {
-                return path.substring(0, qIdx);
-            }
-        }
-        return path;
-    }
-
-    /**
-     * Whether the name of a file ends in one of the BLOCK_COMPRESSED_EXTENSIONS
-     * @param file
-     * @return
-     */
+    @Deprecated
     public static boolean hasBlockCompressedExtension (final File file) {
-        return hasBlockCompressedExtension(file.getName());
+        return IOUtil.hasBlockCompressedExtension(file.getName());
     }
 
     /**
-     * Whether the path of a URI resource ends in one of the BLOCK_COMPRESSED_EXTENSIONS
-     * @param uri a URI representing the resource to check
-     * @return
+     * @deprecated use {@link IOUtil#hasBlockCompressedExtension(URI)}.
      */
+    @Deprecated
     public static boolean hasBlockCompressedExtension (final URI uri) {
         String path = uri.getPath();
-        return hasBlockCompressedExtension(path);
+        return IOUtil.hasBlockCompressedExtension(path);
     }
 
     /**
@@ -238,9 +225,9 @@ public abstract class AbstractFeatureReader<T extends Feature, SOURCE> implement
 
     public static boolean isTabix(String resourcePath, String indexPath) throws IOException {
         if(indexPath == null){
-            indexPath = ParsingUtils.appendToPath(resourcePath, TabixUtils.STANDARD_INDEX_EXTENSION);
+            indexPath = ParsingUtils.appendToPath(resourcePath, FileExtensions.TABIX_INDEX);
         }
-        return hasBlockCompressedExtension(resourcePath) && ParsingUtils.resourceExists(indexPath);
+        return IOUtil.hasBlockCompressedExtension(resourcePath) && ParsingUtils.resourceExists(indexPath);
     }
 
     public static class ComponentMethods{

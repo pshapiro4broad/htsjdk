@@ -18,6 +18,7 @@
 
 package htsjdk.tribble.index.interval;
 
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.Feature;
 import htsjdk.tribble.index.Block;
 import htsjdk.tribble.index.Index;
@@ -35,7 +36,7 @@ import java.util.LinkedList;
  */
 public class IntervalIndexCreator extends TribbleIndexCreator {
 
-    public static int DEFAULT_FEATURE_COUNT = 600;
+    public static final int DEFAULT_FEATURE_COUNT = 600;
 
     /**
      * Maximum number of features stored per interval.
@@ -60,11 +61,11 @@ public class IntervalIndexCreator extends TribbleIndexCreator {
     }
 
     public IntervalIndexCreator(final File inputFile, final int featuresPerInterval) {
-        this(inputFile.toPath(), featuresPerInterval);
+        this(IOUtil.toPath(inputFile), featuresPerInterval);
     }
 
     public IntervalIndexCreator(final File inputFile) {
-        this(inputFile.toPath());
+        this(IOUtil.toPath(inputFile));
     }
 
     public IntervalIndexCreator(final Path inputPath) {

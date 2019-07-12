@@ -147,6 +147,13 @@ public abstract class AbstractLocusIterator<T extends AbstractRecordAndOffset, K
      */
     private int lastInterval = 0;
 
+
+
+    public SAMFileHeader getHeader() {
+        return this.samReader.getFileHeader();
+    }
+
+
     /**
      * Prepare to iterate through the given SAM records, skipping non-primary alignments
      *
@@ -157,7 +164,6 @@ public abstract class AbstractLocusIterator<T extends AbstractRecordAndOffset, K
      *                     It is no longer the case the useIndex==true can make performance worse.  It should always perform at least
      *                     as well as useIndex==false, and generally will be much faster.
      */
-
     public AbstractLocusIterator(final SamReader samReader, final IntervalList intervalList, final boolean useIndex) {
         final String className = this.getClass().getSimpleName();
         if (samReader.getFileHeader().getSortOrder() == null || samReader.getFileHeader().getSortOrder() == SAMFileHeader.SortOrder.unsorted) {
@@ -277,17 +283,12 @@ public abstract class AbstractLocusIterator<T extends AbstractRecordAndOffset, K
                 continue;
             }
 
-            int start = rec.getAlignmentStart();
-            // only if we are including indels and the record does not start in the first base of the reference
-            // the stop locus to populate the queue is not the same if the record starts with an insertion
-            if (includeIndels && start != 1 && startWithInsertion(rec.getCigar())) {
-                // the start to populate is one less
-                start--;
-            }
-            final Locus alignmentStart = new LocusImpl(rec.getReferenceIndex(), start);
-            // emit everything that is before the start of the current read, because we know no more
-            // coverage will be accumulated for those loci.
-            while (!accumulator.isEmpty() && locusComparator.compare(accumulator.get(0), alignmentStart) < 0) {
+            final Locus alignmentStart = new LocusImpl(rec.getReferenceIndex(), rec.getAlignmentStart());
+
+            // emit everything that is before the start of the current read by 2 positions, because we know no more
+            // coverage and insertions will be accumulated for those loci.
+            while (!accumulator.isEmpty() && (locusComparator.compare(accumulator.get(0), alignmentStart) < -1
+                    || accumulator.get(0).getSequenceIndex() != alignmentStart.getSequenceIndex())) {
                 final K first = accumulator.get(0);
                 populateCompleteQueue(alignmentStart);
                 if (!complete.isEmpty()) {
@@ -298,14 +299,7 @@ public abstract class AbstractLocusIterator<T extends AbstractRecordAndOffset, K
                 }
             }
 
-            // at this point, either the accumulator list is empty or the head should
-            // be the same position as the first base of the read (or insertion if first)
-            if (!accumulator.isEmpty()) {
-                if (accumulator.get(0).getSequenceIndex() != rec.getReferenceIndex() ||
-                        accumulator.get(0).getPosition() != start) {
-                    throw new IllegalStateException("accumulator should be empty or aligned with current SAMRecord");
-                }
-            }
+            validateRecordPosition(rec);
 
             // Store the loci for the read in the accumulator
             if (!surpassedAccumulationThreshold()) {
@@ -341,6 +335,17 @@ public abstract class AbstractLocusIterator<T extends AbstractRecordAndOffset, K
             return createNextUncoveredLocusInfo(afterLastMaskPositionLocus);
         } else {
             return null;
+        }
+    }
+
+    private void validateRecordPosition(final SAMRecord rec) {
+        // at this point, either the accumulator list is empty or the head should
+        // be the same position as the first base of the read (or insertion if first)
+        if (!accumulator.isEmpty()) {
+            if (accumulator.get(0).getSequenceIndex() != rec.getReferenceIndex()
+                    || rec.getAlignmentStart() - accumulator.get(0).getPosition() > 1) {
+                throw new IllegalStateException("Accumulator should be empty or aligned with current or previous SAMRecord");
+            }
         }
     }
 

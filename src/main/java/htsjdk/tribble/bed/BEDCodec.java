@@ -23,6 +23,8 @@
  */
 package htsjdk.tribble.bed;
 
+import htsjdk.samtools.util.FileExtensions;
+import htsjdk.samtools.util.IOUtil;
 import htsjdk.tribble.AbstractFeatureReader;
 import htsjdk.tribble.AsciiFeatureCodec;
 import htsjdk.tribble.annotation.Strand;
@@ -42,7 +44,11 @@ import java.util.regex.Pattern;
 public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
 
     /** Default extension for BED files. */
-    public static final String BED_EXTENSION = ".bed";
+    /**
+     * @deprecated since June 2019 Use {@link FileExtensions#BED} instead.
+     */
+    @Deprecated
+    public static final String BED_EXTENSION = FileExtensions.BED;
 
     private static final Pattern SPLIT_PATTERN = Pattern.compile("\\t|( +)");
     private final int startOffsetValue;
@@ -229,12 +235,12 @@ public class BEDCodec extends AsciiFeatureCodec<BEDFeature> {
     @Override
     public boolean canDecode(final String path) {
         final String toDecode;
-        if (AbstractFeatureReader.hasBlockCompressedExtension(path)) {
+        if (IOUtil.hasBlockCompressedExtension(path)) {
             toDecode = path.substring(0, path.lastIndexOf("."));
         } else {
             toDecode = path;
         }
-        return toDecode.toLowerCase().endsWith(BED_EXTENSION);
+        return toDecode.toLowerCase().endsWith(FileExtensions.BED);
     }
 
     public int getStartOffset() {

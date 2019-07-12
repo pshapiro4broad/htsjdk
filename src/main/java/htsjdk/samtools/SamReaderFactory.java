@@ -399,14 +399,24 @@ public abstract class SamReaderFactory {
                         }
                     } else if (BlockCompressedInputStream.isValidFile(bufferedStream)) {
                         primitiveSamReader = new SAMTextReader(new BlockCompressedInputStream(bufferedStream), validationStringency, this.samRecordFactory);
-                    } else if (SamStreams.isGzippedSAMFile(bufferedStream)) {
+                    } else if (IOUtil.isGZIPInputStream(bufferedStream)) {
                         primitiveSamReader = new SAMTextReader(new GZIPInputStream(bufferedStream), validationStringency, this.samRecordFactory);
                     } else if (SamStreams.isCRAMFile(bufferedStream)) {
                         if (referenceSource == null) {
                             referenceSource = ReferenceSource.getDefaultCRAMReferenceSource();
                         }
                         if (sourceFile == null || !sourceFile.isFile()) {
-                            primitiveSamReader = new CRAMFileReader(bufferedStream, indexFile, referenceSource, validationStringency);
+                            final SeekableStream indexSeekableStream =
+                                    indexMaybe == null ?
+                                            null :
+                                            indexMaybe.asUnbufferedSeekableStream();
+                            final SeekableStream sourceSeekableStream = data.asUnbufferedSeekableStream();
+                            if (null == sourceSeekableStream || null == indexSeekableStream) {
+                                primitiveSamReader = new CRAMFileReader(bufferedStream, indexFile, referenceSource, validationStringency);
+                            } else {
+                                sourceSeekableStream.seek(0);
+                                primitiveSamReader = new CRAMFileReader(sourceSeekableStream, indexSeekableStream, referenceSource, validationStringency);
+                            }
                         } else {
                             bufferedStream.close();
                             primitiveSamReader = new CRAMFileReader(sourceFile, indexFile, referenceSource, validationStringency);
@@ -597,7 +607,7 @@ public abstract class SamReaderFactory {
 
         };
 
-        public static EnumSet<Option> DEFAULTS = EnumSet.noneOf(Option.class);
+        public static final EnumSet<Option> DEFAULTS = EnumSet.noneOf(Option.class);
 
         /** Applies this option to the provided reader, if applicable. */
         void applyTo(final SamReader.PrimitiveSamReaderToSamReaderAdapter reader) {

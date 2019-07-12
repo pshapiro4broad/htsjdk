@@ -28,6 +28,7 @@ package htsjdk.variant.variantcontext;
 import htsjdk.tribble.TribbleException;
 import htsjdk.variant.utils.GeneralUtils;
 import htsjdk.variant.vcf.VCFConstants;
+import htsjdk.variant.vcf.VCFUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,6 +36,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Objects;
 
 public class GenotypeLikelihoods {
     private final static int NUM_LIKELIHOODS_CACHE_N_ALLELES = 5;
@@ -158,6 +160,11 @@ public class GenotypeLikelihoods {
         return Arrays.equals(getAsPLs(), that.getAsPLs());
     }
 
+    @Override
+    public int hashCode() {
+        return Arrays.hashCode(getAsPLs());
+    }
+
     //Return genotype likelihoods as an EnumMap with Genotypes as keys and likelihoods as values
     //Returns null in case of missing likelihoods
     public EnumMap<GenotypeType,Double> getAsMap(boolean normalizeFromLog10){
@@ -236,7 +243,7 @@ public class GenotypeLikelihoods {
     }
 
     private final static double[] parsePLsIntoLikelihoods(String likelihoodsAsString_PLs) {
-        if ( !likelihoodsAsString_PLs.equals(VCFConstants.MISSING_VALUE_v4) ) {
+        if ( likelihoodsAsString_PLs != null && !likelihoodsAsString_PLs.equals(VCFConstants.MISSING_VALUE_v4) ) {
             String[] strings = likelihoodsAsString_PLs.split(",");
             double[] likelihoodsAsVector = new double[strings.length];
             try {
@@ -260,10 +267,21 @@ public class GenotypeLikelihoods {
         if ( !GLString.equals(VCFConstants.MISSING_VALUE_v4) ) {
             String[] strings = GLString.split(",");
             double[] likelihoodsAsVector = new double[strings.length];
+            int missing = 0;
             for ( int i = 0; i < strings.length; i++ ) {
-                likelihoodsAsVector[i] = Double.parseDouble(strings[i]);
+                if (strings[i].equals(VCFConstants.MISSING_VALUE_v4)) {
+                  missing++;
+                } else {
+                  likelihoodsAsVector[i] = VCFUtils.parseVcfDouble(strings[i]);
+                }
             }
-            return likelihoodsAsVector;
+            if (missing == 0) {
+              return likelihoodsAsVector;
+            } else if (likelihoodsAsVector.length == missing) {
+              return null; // array of missing values 
+            } else {
+              throw new TribbleException("partial missing values for GL field");
+            }
         }
 
         return null;
@@ -567,13 +585,26 @@ public class GenotypeLikelihoods {
     }
 
     /**
-     * get the PL indexes (AA, AB, BB) for the given allele pair; assumes allele1Index &lt;= allele2Index.
+     * get the PL indices (AA, AB, BB) for the given allele pair; assumes allele1Index &lt;= allele2Index.
+     *
+     * @param allele1Index    the index in VariantContext.getAllele() of the first allele
+     * @param allele2Index    the index in VariantContext.getAllele() of the second allele
+     * @return the PL indexes
+     * @deprecated 7/18 use {@link #getPLIndicesOfAlleles(int, int)} instead
+     */
+    @Deprecated
+    public static int[] getPLIndecesOfAlleles(final int allele1Index, final int allele2Index) {
+        return getPLIndicesOfAlleles(allele1Index, allele2Index);
+    }
+
+    /**
+     * get the PL indices (AA, AB, BB) for the given allele pair; assumes allele1Index &lt;= allele2Index.
      *
      * @param allele1Index    the index in VariantContext.getAllele() of the first allele
      * @param allele2Index    the index in VariantContext.getAllele() of the second allele
      * @return the PL indexes
      */
-    public static int[] getPLIndecesOfAlleles(final int allele1Index, final int allele2Index) {
+    public static int[] getPLIndicesOfAlleles(final int allele1Index, final int allele2Index) {
 
         final int[] indexes = new int[3];
         indexes[0] = calculatePLindex(allele1Index, allele1Index);
